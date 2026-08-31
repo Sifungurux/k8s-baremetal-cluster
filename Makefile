@@ -27,6 +27,7 @@ help:
 .PHONY: deps
 deps:
 	ansible-galaxy install -r requirements.yml
+	pip install -r requirements.txt
 
 .PHONY: preflight
 preflight:
