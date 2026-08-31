@@ -1,5 +1,8 @@
 ---
 collections:
   - name: community.general
+    version: 13.0.1
   - name: ansible.posix
-  - name: kubernetes.core
+    version: 2.2.0
+  - name: ansible.utils
+    version: 6.0.2
