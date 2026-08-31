@@ -1,0 +1,29 @@
+---
+# Pinned versions — no floating tags. Bump deliberately.
+kubernetes_version: "CHANGEME"        # minor only, e.g. "1.33" — selects the apt repo
+kubernetes_patch_version: "CHANGEME"  # full version for kubeadm, e.g. "1.33.4"
+containerd_version: "CHANGEME"
+kube_vip_version: "CHANGEME"          # e.g. v0.8.x
+kube_vip_interface: "CHANGEME"        # rack VLAN interface, e.g. eno1
+cilium_version: "CHANGEME"
+metallb_version: "CHANGEME"
+ingress_nginx_version: "CHANGEME"
+longhorn_version: "CHANGEME"
+
+# Network — all four must not overlap
+control_plane_vip: "CHANGEME"          # single free IP on the rack VLAN
+control_plane_endpoint: "{{ control_plane_vip }}:6443"
+rack_subnet: "CHANGEME"                # e.g. 10.20.0.0/24
+pod_cidr: "10.244.0.0/16"
+service_cidr: "10.96.0.0/12"
+metallb_pool: "CHANGEME"               # e.g. 10.20.0.200-10.20.0.250
+
+# Storage
+longhorn_vg: "CHANGEME"                # volume group name from the OS install
+longhorn_lv: "longhorn"
+longhorn_lv_size: "CHANGEME"           # e.g. 400G
+longhorn_mount: "/var/lib/longhorn"
+
+# v1 posture: control planes carry workloads because Longhorn needs 3 schedulable nodes.
+# Flip to false once a 6th node exists.
+untaint_control_planes: true

@@ -1,0 +1,41 @@
+.DEFAULT_GOAL := help
+ANSIBLE := ansible-playbook
+VARS := inventory/group_vars/all.yml
+
+# Single source of truth: every version is read from group_vars, never duplicated here.
+CILIUM_VERSION        := $(shell yq '.cilium_version' $(VARS))
+METALLB_VERSION       := $(shell yq '.metallb_version' $(VARS))
+INGRESS_NGINX_VERSION := $(shell yq '.ingress_nginx_version' $(VARS))
+LONGHORN_VERSION      := $(shell yq '.longhorn_version' $(VARS))
+METALLB_POOL          := $(shell yq '.metallb_pool' $(VARS))
+
+.PHONY: help
+help:
+	@echo ""
+	@echo "  k8s-baremetal-cluster"
+	@echo ""
+	@echo "    make deps        Install Ansible collections"
+	@echo "    make preflight   Validate inventory and network (changes nothing)"
+	@echo "    make prep        OS + storage prep on all nodes"
+	@echo "    make bootstrap   kubeadm init, joins, CNI"
+	@echo "    make platform    MetalLB, ingress-nginx, Longhorn"
+	@echo "    make kubeconfig  Fetch admin.conf as context 'rack'"
+	@echo "    make verify      Cluster smoke test"
+	@echo "    make reset       DESTRUCTIVE: kubeadm reset all nodes"
+	@echo ""
+
+.PHONY: deps
+deps:
+	ansible-galaxy install -r requirements.yml
+
+.PHONY: preflight
+preflight:
+	$(ANSIBLE) playbooks/preflight.yml
+
+.PHONY: prep
+prep: preflight
+	$(ANSIBLE) playbooks/prep.yml
+
+.PHONY: bootstrap
+bootstrap:
+	$(ANSIBLE) playbooks/bootstrap.yml
