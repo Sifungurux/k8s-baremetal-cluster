@@ -18,6 +18,17 @@
           - modconf.stat.exists
           - sysctlconf.stat.exists
 
+    - name: Kernel module config content
+      ansible.builtin.slurp:
+        src: /etc/modules-load.d/k8s.conf
+      register: modconf_content
+
+    - name: Assert required kernel modules present
+      ansible.builtin.assert:
+        that:
+          - "'overlay' in (modconf_content.content | b64decode)"
+          - "'br_netfilter' in (modconf_content.content | b64decode)"
+
     - name: Sysctl file enables forwarding and bridge filtering
       ansible.builtin.slurp:
         src: /etc/sysctl.d/99-kubernetes.conf
@@ -28,3 +39,18 @@
         that:
           - "'net.ipv4.ip_forward = 1' in (sysctl_content.content | b64decode)"
           - "'net.bridge.bridge-nf-call-iptables = 1' in (sysctl_content.content | b64decode)"
+
+    - name: Fstab content
+      ansible.builtin.slurp:
+        src: /etc/fstab
+      register: fstab_content
+
+    - name: Assert seeded swap entry was commented out
+      ansible.builtin.assert:
+        that:
+          - "'# UUID=a1b2c3d4-e5f6-47a8-89ab-cdef01234567 none swap sw 0 0' in (fstab_content.content | b64decode)"
+          - >-
+            (fstab_content.content | b64decode).splitlines()
+            | select('match', '^UUID=a1b2c3d4-e5f6-47a8-89ab-cdef01234567')
+            | list | length == 0
+        fail_msg: "swap entry in fstab was not disabled"

@@ -6,14 +6,11 @@
   tags:
     - hostonly
 
-- name: Remove swap entries from fstab
-  ansible.posix.mount:
-    path: "{{ item.mount }}"
-    state: absent
-  loop: "{{ ansible_mounts | selectattr('fstype', 'equalto', 'swap') | list }}"
-  when: ansible_mounts is defined
-  tags:
-    - hostonly
+- name: Comment out swap entries in fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#\n]*\sswap\s.*)$'
+    replace: '# \1'
 
 - name: Load required kernel modules at boot
   ansible.builtin.copy:
