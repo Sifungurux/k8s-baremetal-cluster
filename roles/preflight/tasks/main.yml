@@ -1,0 +1,59 @@
+---
+- name: Required variables are defined
+  ansible.builtin.assert:
+    that:
+      - kubernetes_version is defined and kubernetes_version != "CHANGEME"
+      - control_plane_vip is defined and control_plane_vip != "CHANGEME"
+      - metallb_pool is defined and metallb_pool != "CHANGEME"
+      - rack_subnet is defined and rack_subnet != "CHANGEME"
+      - longhorn_vg is defined and longhorn_vg != "CHANGEME"
+    fail_msg: "Fill in inventory/group_vars/all.yml before running anything"
+  run_once: true
+  delegate_to: localhost
+
+- name: Pod and service CIDRs do not collide with the rack subnet
+  ansible.builtin.assert:
+    that:
+      - not (rack_subnet | ansible.utils.network_in_network(pod_cidr))
+      - not (pod_cidr | ansible.utils.network_in_network(rack_subnet))
+      - not (rack_subnet | ansible.utils.network_in_network(service_cidr))
+      - not (service_cidr | ansible.utils.network_in_network(rack_subnet))
+    fail_msg: "pod_cidr/service_cidr overlap rack_subnet — pick non-overlapping ranges"
+  run_once: true
+  delegate_to: localhost
+
+- name: Control-plane VIP must be free
+  ansible.builtin.command:
+    cmd: "ping -c1 -W1 {{ control_plane_vip }}"
+  register: vip_ping
+  failed_when: vip_ping.rc == 0
+  changed_when: false
+  run_once: true
+  delegate_to: localhost
+  tags:
+    - hostcheck
+
+- name: Volume group has free space for the Longhorn LV
+  ansible.builtin.command:
+    cmd: "vgs --noheadings -o vg_free --units g {{ longhorn_vg }}"
+  register: vg_free
+  changed_when: false
+  tags:
+    - hostcheck
+
+- name: Fail if the volume group is full
+  ansible.builtin.assert:
+    that:
+      - vg_free.stdout | trim | regex_replace('g$', '') | float > 0
+    fail_msg: "No free space in VG {{ longhorn_vg }} on {{ inventory_hostname }}"
+  tags:
+    - hostcheck
+
+- name: Time is synchronised
+  ansible.builtin.command:
+    cmd: timedatectl show -p NTPSynchronized --value
+  register: ntp_sync
+  changed_when: false
+  failed_when: ntp_sync.stdout | trim != "yes"
+  tags:
+    - hostcheck
