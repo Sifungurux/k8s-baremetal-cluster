@@ -22,7 +22,71 @@
   run_once: true
   delegate_to: localhost
 
-- name: Control-plane VIP must be free
+- name: Parse the MetalLB pool endpoints
+  ansible.builtin.set_fact:
+    metallb_pool_start: "{{ metallb_pool.split('-')[0] }}"
+    metallb_pool_end: "{{ metallb_pool.split('-')[1] }}"
+  run_once: true
+  delegate_to: localhost
+
+- name: Control-plane VIP falls inside the rack subnet
+  ansible.builtin.assert:
+    that:
+      - rack_subnet | ansible.utils.network_in_network(control_plane_vip)
+    fail_msg: "control_plane_vip and rack_subnet collide — control_plane_vip must be an address on rack_subnet"
+  run_once: true
+  delegate_to: localhost
+
+- name: Control-plane VIP does not collide with the MetalLB pool
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (
+          (control_plane_vip | ansible.utils.ipaddr('int') | int >= metallb_pool_start | ansible.utils.ipaddr('int') | int)
+          and
+          (control_plane_vip | ansible.utils.ipaddr('int') | int <= metallb_pool_end | ansible.utils.ipaddr('int') | int)
+        )
+    fail_msg: "control_plane_vip and metallb_pool collide — control_plane_vip falls inside the MetalLB pool range"
+  run_once: true
+  delegate_to: localhost
+
+- name: MetalLB pool falls inside the rack subnet
+  ansible.builtin.assert:
+    that:
+      - rack_subnet | ansible.utils.network_in_network(metallb_pool_start)
+      - rack_subnet | ansible.utils.network_in_network(metallb_pool_end)
+    fail_msg: "metallb_pool and rack_subnet collide — metallb_pool must sit entirely inside rack_subnet"
+  run_once: true
+  delegate_to: localhost
+
+- name: MetalLB pool does not collide with the pod CIDR
+  ansible.builtin.assert:
+    that:
+      - not (pod_cidr | ansible.utils.network_in_network(metallb_pool_start))
+      - not (pod_cidr | ansible.utils.network_in_network(metallb_pool_end))
+    fail_msg: "metallb_pool and pod_cidr collide — pick a MetalLB pool outside pod_cidr"
+  run_once: true
+  delegate_to: localhost
+
+- name: MetalLB pool does not collide with the service CIDR
+  ansible.builtin.assert:
+    that:
+      - not (service_cidr | ansible.utils.network_in_network(metallb_pool_start))
+      - not (service_cidr | ansible.utils.network_in_network(metallb_pool_end))
+    fail_msg: "metallb_pool and service_cidr collide — pick a MetalLB pool outside service_cidr"
+  run_once: true
+  delegate_to: localhost
+
+- name: Check whether the cluster is already bootstrapped
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: admin_conf
+  run_once: true
+  delegate_to: "{{ groups['control_plane'][0] }}"
+  tags:
+    - hostcheck
+
+- name: Control-plane VIP must be free (pre-bootstrap)
   ansible.builtin.command:
     cmd: "ping -c1 -W1 {{ control_plane_vip }}"
   register: vip_ping
@@ -30,6 +94,19 @@
   changed_when: false
   run_once: true
   delegate_to: localhost
+  when: not admin_conf.stat.exists
+  tags:
+    - hostcheck
+
+- name: Control-plane VIP must answer (post-bootstrap)
+  ansible.builtin.command:
+    cmd: "ping -c1 -W1 {{ control_plane_vip }}"
+  register: vip_ping_up
+  failed_when: vip_ping_up.rc != 0
+  changed_when: false
+  run_once: true
+  delegate_to: localhost
+  when: admin_conf.stat.exists
   tags:
     - hostcheck
 
