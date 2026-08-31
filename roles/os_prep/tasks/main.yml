@@ -1,0 +1,49 @@
+---
+- name: Disable swap for the current boot
+  ansible.builtin.command: swapoff -a
+  when: ansible_swaptotal_mb | default(0) > 0
+  changed_when: ansible_swaptotal_mb | default(0) > 0
+  tags:
+    - hostonly
+
+- name: Remove swap entries from fstab
+  ansible.posix.mount:
+    path: "{{ item.mount }}"
+    state: absent
+  loop: "{{ ansible_mounts | selectattr('fstype', 'equalto', 'swap') | list }}"
+  when: ansible_mounts is defined
+  tags:
+    - hostonly
+
+- name: Load required kernel modules at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Load modules now
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+  failed_when: false          # no-ops in containers; real hosts load them
+  tags:
+    - hostonly
+
+- name: Set kubernetes sysctls
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-kubernetes.conf
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload sysctl

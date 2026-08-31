@@ -1,0 +1,30 @@
+---
+- name: Verify
+  hosts: all
+  tasks:
+    - name: Kernel module config exists
+      ansible.builtin.stat:
+        path: /etc/modules-load.d/k8s.conf
+      register: modconf
+
+    - name: Sysctl config exists
+      ansible.builtin.stat:
+        path: /etc/sysctl.d/99-kubernetes.conf
+      register: sysctlconf
+
+    - name: Assert both are present
+      ansible.builtin.assert:
+        that:
+          - modconf.stat.exists
+          - sysctlconf.stat.exists
+
+    - name: Sysctl file enables forwarding and bridge filtering
+      ansible.builtin.slurp:
+        src: /etc/sysctl.d/99-kubernetes.conf
+      register: sysctl_content
+
+    - name: Assert required sysctls present
+      ansible.builtin.assert:
+        that:
+          - "'net.ipv4.ip_forward = 1' in (sysctl_content.content | b64decode)"
+          - "'net.bridge.bridge-nf-call-iptables = 1' in (sysctl_content.content | b64decode)"
