@@ -8,3 +8,20 @@
         path: /etc/fstab
         line: "UUID=a1b2c3d4-e5f6-47a8-89ab-cdef01234567 none swap sw 0 0"
         create: true
+
+    - name: Seed non-swap lines that merely contain "swap" (regression fixture)
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        line: "{{ item }}"
+        create: true
+      loop:
+        - "/dev/sdb1 /swap ext4 defaults 0 2"
+        - "/dev/sdb2 /mnt/swapfiles ext4 defaults 0 2"
+        - "LABEL=swap /data ext4 defaults 0 2"
+        - "/dev/sdb3 /data2 ext4 rw,swap 0 2"
+
+    - name: Seed an already-commented swap entry (idempotence fixture)
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        line: "# UUID=old-swap none swap sw 0 0"
+        create: true
