@@ -5,6 +5,8 @@
     lv: "{{ longhorn_lv }}"
     size: "{{ longhorn_lv_size }}"
     state: present
+    shrink: false  # refuse to lvreduce on a config downsize — that truncates a live ext4 fs
+    resizefs: true  # grow ext4 to match when longhorn_lv_size is increased
   tags:
     - hostonly
 
