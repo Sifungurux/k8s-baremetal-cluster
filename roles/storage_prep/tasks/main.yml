@@ -1,0 +1,34 @@
+---
+- name: Create the Longhorn logical volume
+  community.general.lvol:
+    vg: "{{ longhorn_vg }}"
+    lv: "{{ longhorn_lv }}"
+    size: "{{ longhorn_lv_size }}"
+    state: present
+  tags:
+    - hostonly
+
+- name: Create an ext4 filesystem on it
+  community.general.filesystem:
+    fstype: ext4
+    dev: "/dev/{{ longhorn_vg }}/{{ longhorn_lv }}"
+  tags:
+    - hostonly
+
+- name: Ensure the mount point exists
+  ansible.builtin.file:
+    path: "{{ longhorn_mount }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Mount the Longhorn volume and persist it in fstab
+  ansible.posix.mount:
+    path: "{{ longhorn_mount }}"
+    src: "/dev/{{ longhorn_vg }}/{{ longhorn_lv }}"
+    fstype: ext4
+    opts: defaults
+    state: mounted
+  tags:
+    - hostonly

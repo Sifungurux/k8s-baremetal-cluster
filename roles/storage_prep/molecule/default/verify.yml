@@ -1,0 +1,14 @@
+---
+- name: Verify
+  hosts: all
+  tasks:
+    - name: Longhorn mount point exists
+      ansible.builtin.stat:
+        path: /var/lib/longhorn
+      register: lh_dir
+
+    - name: Assert the directory is present
+      ansible.builtin.assert:
+        that:
+          - lh_dir.stat.exists
+          - lh_dir.stat.isdir
