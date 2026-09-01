@@ -3,6 +3,7 @@
 kubernetes_version: "CHANGEME"        # minor only, e.g. "1.33" — selects the apt repo
 kubernetes_patch_version: "CHANGEME"  # full version for kubeadm, e.g. "1.33.4"
 containerd_version: "CHANGEME"
+pause_image_version: "CHANGEME"       # tracks kubernetes_version, e.g. "3.10"
 kube_vip_version: "CHANGEME"          # e.g. v0.8.x
 kube_vip_interface: "CHANGEME"        # rack VLAN interface, e.g. eno1
 cilium_version: "CHANGEME"

@@ -96,3 +96,9 @@
         that:
           - "'SystemdCgroup = true' in (containerd_conf.content | b64decode)"
         fail_msg: "containerd must use the systemd cgroup driver or kubelet will not start"
+
+    - name: Assert pause_image_version rendered into sandbox_image
+      ansible.builtin.assert:
+        that:
+          - "'sandbox_image = \"registry.k8s.io/pause:3.10\"' in (containerd_conf.content | b64decode)"
+        fail_msg: "sandbox_image did not render the pinned pause_image_version fixture (3.10)"
