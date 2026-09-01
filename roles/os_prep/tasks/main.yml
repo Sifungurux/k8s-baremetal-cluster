@@ -6,6 +6,14 @@
   tags:
     - hostonly
 
+- name: Verify swap is fully off
+  ansible.builtin.command: swapon --show
+  register: swap_show
+  changed_when: false
+  failed_when: swap_show.stdout | trim != ""
+  tags:
+    - hostonly
+
 - name: Comment out swap entries in fstab
   ansible.builtin.replace:
     path: /etc/fstab
@@ -87,6 +95,22 @@
     enabled: true
     daemon_reload: true
   when: containerd_config is changed
+  tags:
+    - hostonly
+
+- name: Verify containerd is active
+  ansible.builtin.command: systemctl is-active containerd
+  register: containerd_active
+  changed_when: false
+  failed_when: containerd_active.stdout | trim != "active"
+  tags:
+    - hostonly
+
+- name: Verify containerd uses the systemd cgroup driver
+  ansible.builtin.command: containerd config dump
+  register: containerd_dump
+  changed_when: false
+  failed_when: "'SystemdCgroup = true' not in containerd_dump.stdout"
   tags:
     - hostonly
 
