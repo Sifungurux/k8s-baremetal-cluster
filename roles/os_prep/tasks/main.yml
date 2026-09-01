@@ -113,9 +113,9 @@
 - name: Install kubelet, kubeadm, and kubectl
   ansible.builtin.apt:
     name:
-      - kubelet
-      - kubeadm
-      - kubectl
+      - "kubelet={{ kubernetes_patch_version }}-*"
+      - "kubeadm={{ kubernetes_patch_version }}-*"
+      - "kubectl={{ kubernetes_patch_version }}-*"
     state: present
     update_cache: true
   tags:
@@ -150,6 +150,7 @@
       - nfs-common
     state: present
     update_cache: true
+    cache_valid_time: 3600
 
 - name: Enable iscsid
   ansible.builtin.systemd:
