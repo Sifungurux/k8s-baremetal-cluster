@@ -188,7 +188,21 @@
     group: root
     mode: "0644"
   when: inventory_hostname in groups['control_plane']
-  notify: restart kubelet
+  register: kubelet_reservations
+
+# A handler here can't be gated with hostonly (skip-tags does not suppress a
+# notified handler), and kubelet itself is only installed on hostonly
+# runs — so the restart is a plain hostonly task instead of notify/handler.
+- name: Restart kubelet after a config change
+  ansible.builtin.systemd:
+    name: kubelet
+    state: restarted
+    daemon_reload: true
+  when:
+    - kubelet_reservations is changed
+    - inventory_hostname in groups['control_plane']
+  tags:
+    - hostonly
 
 - name: Install Longhorn node prerequisites
   ansible.builtin.apt:
