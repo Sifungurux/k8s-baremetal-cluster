@@ -1,0 +1,13 @@
+---
+- name: Verify
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: CIDRs must not overlap the rack subnet
+      ansible.builtin.assert:
+        that:
+          - not (rack_subnet | ansible.utils.network_in_network(pod_cidr))
+          - not (pod_cidr | ansible.utils.network_in_network(rack_subnet))
+          - not (rack_subnet | ansible.utils.network_in_network(service_cidr))
+          - not (service_cidr | ansible.utils.network_in_network(rack_subnet))
+        fail_msg: "pod_cidr or service_cidr overlaps rack_subnet"

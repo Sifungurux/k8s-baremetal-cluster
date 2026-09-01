@@ -1,0 +1,46 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  tasks:
+    - name: "Negative case 1: pod_cidr overlapping rack_subnet must fail preflight"
+      block:
+        - name: Run preflight with an overlapping pod_cidr
+          ansible.builtin.include_role:
+            name: preflight
+          vars:
+            pod_cidr: "10.20.0.0/24" # deliberately equals rack_subnet
+            metallb_pool: "10.20.0.200-10.20.0.250"
+
+        - name: Fail the test — preflight should have rejected this
+          ansible.builtin.fail:
+            msg: "preflight accepted an overlapping pod_cidr — the CIDR-overlap assertion is not being exercised"
+      rescue:
+        - name: Confirm preflight failed for the expected reason
+          ansible.builtin.assert:
+            that:
+              - "'overlap rack_subnet' in (ansible_failed_result.msg | default(''))"
+            fail_msg: >-
+              preflight failed, but not for the CIDR-overlap reason:
+              {{ ansible_failed_result.msg | default('no failure message captured') }}
+
+    - name: "Negative case 2: metallb_pool containing control_plane_vip must fail preflight"
+      block:
+        - name: Run preflight with a metallb_pool that swallows the VIP
+          ansible.builtin.include_role:
+            name: preflight
+          vars:
+            pod_cidr: "10.244.0.0/16"
+            metallb_pool: "10.20.0.1-10.20.0.250" # contains 10.20.0.5, the VIP
+
+        - name: Fail the test — preflight should have rejected this
+          ansible.builtin.fail:
+            msg: "preflight accepted a metallb_pool containing control_plane_vip — the VIP-collision assertion is not being exercised"
+      rescue:
+        - name: Confirm preflight failed for the expected reason
+          ansible.builtin.assert:
+            that:
+              - "'collide' in (ansible_failed_result.msg | default(''))"
+            fail_msg: >-
+              preflight failed, but not for the VIP/metallb-collision reason:
+              {{ ansible_failed_result.msg | default('no failure message captured') }}

@@ -1,0 +1,12 @@
+---
+- name: Verify
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: No additional checks here — negative cases are asserted inline in converge.yml
+      ansible.builtin.debug:
+        msg: >-
+          Both negative cases (pod_cidr/rack_subnet overlap, metallb_pool/control_plane_vip
+          collision) are asserted via block/rescue directly in converge.yml, because verify.yml
+          runs as a separate ansible-playbook invocation and cannot see facts registered during
+          converge.

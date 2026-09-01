@@ -1,0 +1,27 @@
+---
+driver:
+  name: docker
+
+platforms:
+  - name: debian12
+    image: geerlingguy/docker-debian12-ansible@sha256:3232ce7d506146b149802b561f49871dde8339fa6cb0e175c69db69530cedd47  # yamllint disable-line rule:line-length
+    command: /lib/systemd/systemd
+    tmpfs:
+      - /run
+      - /tmp
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+    privileged: true
+    pre_build_image: true
+    groups:
+      - control_plane
+
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
+    ANSIBLE_SKIP_TAGS: hostonly
+
+verifier:
+  name: ansible
