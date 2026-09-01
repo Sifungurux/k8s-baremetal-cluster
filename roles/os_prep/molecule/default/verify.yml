@@ -102,3 +102,21 @@
         that:
           - "'sandbox_image = \"registry.k8s.io/pause:3.10\"' in (containerd_conf.content | b64decode)"
         fail_msg: "sandbox_image did not render the pinned pause_image_version fixture (3.10)"
+
+    - name: Kubelet reservations file content
+      ansible.builtin.slurp:
+        src: /etc/default/kubelet
+      register: kubelet_defaults
+
+    - name: Assert kubelet reservation flags are present
+      ansible.builtin.assert:
+        that:
+          - "'--system-reserved=cpu=500m,memory=1Gi' in (kubelet_defaults.content | b64decode)"
+          - "'--kube-reserved=cpu=500m,memory=1Gi' in (kubelet_defaults.content | b64decode)"
+          - "'--eviction-hard=memory.available<500Mi' in (kubelet_defaults.content | b64decode)"
+        fail_msg: "kubelet reservation flags missing from /etc/default/kubelet"
+
+    - name: Longhorn prerequisites are present
+      ansible.builtin.command: dpkg -s open-iscsi nfs-common
+      register: longhorn_prereqs
+      changed_when: false
