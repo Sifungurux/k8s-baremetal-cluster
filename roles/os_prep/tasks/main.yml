@@ -29,7 +29,6 @@
   loop:
     - overlay
     - br_netfilter
-  failed_when: false          # no-ops in containers; real hosts load them
   tags:
     - hostonly
 
@@ -76,7 +75,20 @@
     owner: root
     group: root
     mode: "0644"
-  notify: restart containerd
+  register: containerd_config
+
+# A handler here can't be gated with hostonly (skip-tags does not suppress a
+# notified handler), and containerd itself is only installed on hostonly
+# runs — so the restart is a plain hostonly task instead of notify/handler.
+- name: Restart containerd after a config change
+  ansible.builtin.systemd:
+    name: containerd
+    state: restarted
+    enabled: true
+    daemon_reload: true
+  when: containerd_config is changed
+  tags:
+    - hostonly
 
 - name: Install apt prerequisites
   ansible.builtin.apt:
@@ -157,6 +169,5 @@
     name: iscsid
     enabled: true
     state: started
-  failed_when: false
   tags:
     - hostonly       # containers lack NETLINK_ISCSI; real hosts start it fine

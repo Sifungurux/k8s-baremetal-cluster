@@ -1,15 +1,6 @@
 ---
 - name: reload sysctl
   ansible.builtin.command: sysctl --system
-  failed_when: false
-
-- name: restart containerd
-  ansible.builtin.systemd:
-    name: containerd
-    state: restarted
-    enabled: true
-    daemon_reload: true
-  failed_when: false
 
 - name: restart kubelet
   ansible.builtin.systemd:
