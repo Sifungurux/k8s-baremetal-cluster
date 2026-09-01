@@ -85,3 +85,14 @@
           - "'# UUID=old-swap none swap sw 0 0' in (fstab_content.content | b64decode)"
           - "'# # ' not in (fstab_content.content | b64decode)"
         fail_msg: "'# UUID=old-swap none swap sw 0 0' was double-commented (idempotence broken)"
+
+    - name: containerd config exists with systemd cgroup driver
+      ansible.builtin.slurp:
+        src: /etc/containerd/config.toml
+      register: containerd_conf
+
+    - name: Assert SystemdCgroup is enabled
+      ansible.builtin.assert:
+        that:
+          - "'SystemdCgroup = true' in (containerd_conf.content | b64decode)"
+        fail_msg: "containerd must use the systemd cgroup driver or kubelet will not start"

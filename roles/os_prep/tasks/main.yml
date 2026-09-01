@@ -44,3 +44,36 @@
     group: root
     mode: "0644"
   notify: reload sysctl
+
+- name: Install containerd
+  ansible.builtin.apt:
+    name: "containerd={{ containerd_version }}*"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  tags:
+    - hostonly
+
+- name: Hold containerd at the pinned version
+  ansible.builtin.dpkg_selections:
+    name: containerd
+    selection: hold
+  tags:
+    - hostonly
+
+- name: Ensure containerd config directory exists
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write containerd config with the systemd cgroup driver
+  ansible.builtin.template:
+    src: containerd-config.toml.j2
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart containerd
