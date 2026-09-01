@@ -13,6 +13,7 @@
     fail_msg: "Fill in inventory/group_vars/all.yml before running anything"
   run_once: true
   delegate_to: localhost
+  become: false
 
 - name: Pod and service CIDRs do not collide with the rack subnet
   ansible.builtin.assert:
@@ -24,6 +25,7 @@
     fail_msg: "pod_cidr/service_cidr overlap rack_subnet — pick non-overlapping ranges"
   run_once: true
   delegate_to: localhost
+  become: false
 
 - name: Parse the MetalLB pool endpoints
   ansible.builtin.set_fact:
@@ -31,6 +33,7 @@
     metallb_pool_end: "{{ metallb_pool.split('-')[1] }}"
   run_once: true
   delegate_to: localhost
+  become: false
 
 - name: Control-plane VIP falls inside the rack subnet
   ansible.builtin.assert:
@@ -39,6 +42,7 @@
     fail_msg: "control_plane_vip and rack_subnet collide — control_plane_vip must be an address on rack_subnet"
   run_once: true
   delegate_to: localhost
+  become: false
 
 - name: Control-plane VIP does not collide with the MetalLB pool
   ansible.builtin.assert:
@@ -52,6 +56,7 @@
     fail_msg: "control_plane_vip and metallb_pool collide — control_plane_vip falls inside the MetalLB pool range"
   run_once: true
   delegate_to: localhost
+  become: false
 
 - name: MetalLB pool falls inside the rack subnet
   ansible.builtin.assert:
@@ -61,6 +66,7 @@
     fail_msg: "metallb_pool and rack_subnet collide — metallb_pool must sit entirely inside rack_subnet"
   run_once: true
   delegate_to: localhost
+  become: false
 
 - name: MetalLB pool does not collide with the pod CIDR
   ansible.builtin.assert:
@@ -70,6 +76,7 @@
     fail_msg: "metallb_pool and pod_cidr collide — pick a MetalLB pool outside pod_cidr"
   run_once: true
   delegate_to: localhost
+  become: false
 
 - name: MetalLB pool does not collide with the service CIDR
   ansible.builtin.assert:
@@ -79,6 +86,7 @@
     fail_msg: "metallb_pool and service_cidr collide — pick a MetalLB pool outside service_cidr"
   run_once: true
   delegate_to: localhost
+  become: false
 
 - name: Check whether the cluster is already bootstrapped
   ansible.builtin.stat:
@@ -96,7 +104,8 @@
   failed_when: vip_ping.rc == 0
   changed_when: false
   run_once: true
-  delegate_to: localhost
+  delegate_to: "{{ groups['control_plane'][0] }}"
+  become: false
   when: not admin_conf.stat.exists
   tags:
     - hostcheck
@@ -108,7 +117,8 @@
   failed_when: vip_ping_up.rc != 0
   changed_when: false
   run_once: true
-  delegate_to: localhost
+  delegate_to: "{{ groups['control_plane'][0] }}"
+  become: false
   when: admin_conf.stat.exists
   tags:
     - hostcheck
