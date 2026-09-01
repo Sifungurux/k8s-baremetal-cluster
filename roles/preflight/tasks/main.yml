@@ -7,6 +7,9 @@
       - metallb_pool is defined and metallb_pool != "CHANGEME"
       - rack_subnet is defined and rack_subnet != "CHANGEME"
       - longhorn_vg is defined and longhorn_vg != "CHANGEME"
+      - containerd_version is defined and containerd_version != "CHANGEME"
+      - kubernetes_patch_version is defined and kubernetes_patch_version != "CHANGEME"
+      - pause_image_version is defined and pause_image_version != "CHANGEME"
     fail_msg: "Fill in inventory/group_vars/all.yml before running anything"
   run_once: true
   delegate_to: localhost

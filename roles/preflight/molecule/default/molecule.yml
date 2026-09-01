@@ -27,6 +27,9 @@ provisioner:
         # values chosen so the CIDR non-overlap assertion is genuinely
         # exercised against the plan's real pod/service CIDRs.
         kubernetes_version: "1.33"
+        kubernetes_patch_version: "1.33.4"
+        containerd_version: "1.7.24"
+        pause_image_version: "3.10"
         control_plane_vip: "10.20.0.5"
         metallb_pool: "10.20.0.200-10.20.0.250"
         rack_subnet: "10.20.0.0/24"
