@@ -19,6 +19,7 @@
     path: /etc/fstab
     regexp: '^([^#\n]*\sswap\s.*)$'
     replace: '# \1'
+    backup: true
 
 - name: Load required kernel modules at boot
   ansible.builtin.copy:
@@ -123,6 +124,16 @@
       - gpg
     state: present
     update_cache: true
+  tags:
+    - hostonly
+
+- name: Ensure apt keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
   tags:
     - hostonly
 
