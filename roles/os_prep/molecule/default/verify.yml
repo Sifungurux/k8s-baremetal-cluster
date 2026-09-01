@@ -100,8 +100,8 @@
     - name: Assert pause_image_version rendered into sandbox_image
       ansible.builtin.assert:
         that:
-          - "'sandbox_image = \"registry.k8s.io/pause:3.10\"' in (containerd_conf.content | b64decode)"
-        fail_msg: "sandbox_image did not render the pinned pause_image_version fixture (3.10)"
+          - "'sandbox_image = \"registry.k8s.io/pause:9.99-test\"' in (containerd_conf.content | b64decode)"
+        fail_msg: "sandbox_image did not render the pinned pause_image_version fixture (9.99-test)"
 
     - name: Kubelet reservations file content
       ansible.builtin.slurp:
