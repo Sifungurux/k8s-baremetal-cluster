@@ -2,3 +2,6 @@
 *.retry
 inventory/group_vars/vault.yml
 .serena/
+
+# Built installer images and the cached Debian netinst
+dist/

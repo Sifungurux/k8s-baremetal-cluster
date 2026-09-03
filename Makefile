@@ -14,6 +14,8 @@ help:
 	@echo ""
 	@echo "  k8s-baremetal-cluster"
 	@echo ""
+	@echo "    make iso         Build the USB installer image (dist/)"
+	@echo "    make iso-check   Check the generated preseed and boot menu"
 	@echo "    make deps        Install Ansible collections"
 	@echo "    make preflight   Validate inventory and network (changes nothing)"
 	@echo "    make prep        OS + storage prep on all nodes"
@@ -23,6 +25,14 @@ help:
 	@echo "    make verify      Cluster smoke test"
 	@echo "    make reset       DESTRUCTIVE: kubeadm reset all nodes"
 	@echo ""
+
+.PHONY: iso
+iso:
+	installer/build-iso.sh
+
+.PHONY: iso-check
+iso-check:
+	installer/test-build.sh
 
 .PHONY: deps
 deps:

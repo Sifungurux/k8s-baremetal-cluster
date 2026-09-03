@@ -1,0 +1,128 @@
+# Unattended Debian install for a Kubernetes rack node.
+#
+# Not used directly — installer/build-iso.sh substitutes the @-delimited
+# values from inventory/ and bakes the result into the ISO as /preseed.cfg.
+# The per-node hostname arrives on the kernel command line from the GRUB menu
+# entry, so one ISO installs every node in the rack.
+
+### Localisation
+d-i debian-installer/locale string en_US.UTF-8
+d-i keyboard-configuration/xkb-keymap select @KEYMAP@
+
+### Network — DHCP; hostname comes from the boot menu entry
+d-i netcfg/choose_interface select auto
+d-i netcfg/get_domain string @DOMAIN@
+d-i netcfg/wireless_wep string
+
+### Mirror
+d-i mirror/country string manual
+d-i mirror/http/hostname string @MIRROR@
+d-i mirror/http/directory string /debian
+d-i mirror/http/proxy string
+
+### Clock — preflight asserts NTPSynchronized, so this must stay on
+d-i clock-setup/utc boolean true
+d-i time/zone string @TIMEZONE@
+d-i clock-setup/ntp boolean true
+
+### Accounts — key-only login, no root password
+d-i passwd/root-login boolean false
+d-i passwd/user-fullname string @USER@
+d-i passwd/username string @USER@
+d-i passwd/user-password-crypted password @PASSWORD_CRYPTED@
+d-i user-setup/allow-password-weak boolean true
+d-i user-setup/encrypt-home boolean false
+
+### Partitioning
+#
+# LVM on one disk, no swap (kubelet refuses to run with swap on).
+# The root LV is capped at @ROOT_MAX_MB@ MB on purpose: everything left over
+# stays as free extents in VG @VG@, which is where storage_prep carves the
+# @LONGHORN_LV_SIZE@ Longhorn volume. guided_size stays "max" so the VG itself
+# spans the whole disk — it caps the volume group, not the logical volume.
+d-i partman-auto/disk string @DISK@
+d-i partman-auto/method string lvm
+d-i partman-auto-lvm/new_vg_name string @VG@
+d-i partman-auto-lvm/guided_size string max
+d-i partman-lvm/device_remove_lvm boolean true
+d-i partman-md/device_remove_md boolean true
+d-i partman-lvm/confirm boolean true
+d-i partman-lvm/confirm_nooverwrite boolean true
+d-i partman-basicfilesystems/no_swap boolean false
+
+d-i partman-auto/choose_recipe select k8snode
+d-i partman-auto/expert_recipe string                     \
+      k8snode ::                                          \
+              1 1 1 free                                  \
+                      $iflabel{ gpt }                     \
+                      $reusemethod{ }                     \
+                      method{ biosgrub }                  \
+              .                                           \
+              538 538 1075 free                           \
+                      $iflabel{ gpt }                     \
+                      $reusemethod{ }                     \
+                      method{ efi }                       \
+                      format{ }                           \
+              .                                           \
+              1024 1024 1024 ext4                         \
+                      $primary{ }                         \
+                      method{ format }                    \
+                      format{ }                           \
+                      use_filesystem{ }                   \
+                      filesystem{ ext4 }                  \
+                      mountpoint{ /boot }                 \
+              .                                           \
+              1000 10000 -1 ext4                          \
+                      $defaultignore{ }                   \
+                      $primary{ }                         \
+                      method{ lvm }                       \
+                      vg_name{ @VG@ }                     \
+              .                                           \
+              20480 @ROOT_MAX_MB@ @ROOT_MAX_MB@ ext4      \
+                      $lvmok{ }                           \
+                      lv_name{ root }                     \
+                      method{ format }                    \
+                      format{ }                           \
+                      use_filesystem{ }                   \
+                      filesystem{ ext4 }                  \
+                      mountpoint{ / }                     \
+              .
+
+d-i partman-partitioning/confirm_write_new_label boolean true
+d-i partman/choose_partition select finish
+d-i partman/confirm boolean true
+d-i partman/confirm_nooverwrite boolean true
+
+### Packages
+tasksel tasksel/first multiselect standard, ssh-server
+d-i pkgsel/include string openssh-server sudo ansible-core python3-apt lvm2 gnupg ca-certificates curl
+d-i pkgsel/upgrade select full-upgrade
+# No automatic upgrades: a surprise containerd restart on a running node is worse
+# than a manual patch window. os_prep holds the kube packages either way.
+d-i pkgsel/update-policy select none
+popularity-contest/participate boolean false
+
+### Bootloader
+d-i grub-installer/only_debian boolean true
+d-i grub-installer/bootdev string @DISK@
+
+### Hand off to Ansible
+#
+# The repo is unpacked into /opt/k8s-baremetal-cluster and a oneshot unit runs
+# playbooks/prep.yml on first boot, where systemd and the real kernel are
+# available (modprobe and systemctl do not work inside the d-i chroot).
+d-i preseed/late_command string \
+    in-target mkdir -p /opt/k8s-baremetal-cluster ; \
+    tar -xzf /cdrom/k8s-ansible.tar.gz -C /target/opt/k8s-baremetal-cluster ; \
+    in-target chmod +x /opt/k8s-baremetal-cluster/installer/firstboot.sh ; \
+    in-target cp /opt/k8s-baremetal-cluster/installer/k8s-node-prep.service /etc/systemd/system/k8s-node-prep.service ; \
+    in-target systemctl enable k8s-node-prep.service ; \
+    mkdir -p /target/home/@USER@/.ssh ; \
+    echo '@SSH_KEY@' > /target/home/@USER@/.ssh/authorized_keys ; \
+    in-target chown -R @USER@:@USER@ /home/@USER@/.ssh ; \
+    in-target chmod 700 /home/@USER@/.ssh ; \
+    in-target chmod 600 /home/@USER@/.ssh/authorized_keys ; \
+    echo '@USER@ ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/90-@USER@ ; \
+    chmod 440 /target/etc/sudoers.d/90-@USER@
+
+d-i finish-install/reboot_in_progress note
