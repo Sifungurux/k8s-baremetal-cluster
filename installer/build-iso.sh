@@ -191,6 +191,10 @@ else
 fi
 
 echo "build-iso: writing $OUT"
+# xorriso refuses an -outdev that already holds data, so a rebuild over a
+# previous image fails unless the old one is gone first.
+mkdir -p "$(dirname "$OUT")"
+rm -f "$OUT"
 xorriso -indev "$ISO" -outdev "$OUT" \
     -boot_image any replay \
     -compliance no_emul_toc \

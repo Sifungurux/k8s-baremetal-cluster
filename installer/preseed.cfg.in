@@ -36,6 +36,14 @@ d-i user-setup/encrypt-home boolean false
 ### Partitioning
 #
 # LVM on one disk, no swap (kubelet refuses to run with swap on).
+#
+# The PV partition deliberately carries no vg_name{ }: partman-auto-lvm files
+# each PV under the VG its vg_name names, and every logical volume under the VG
+# its in_vg names — falling back to one internal default group when either is absent.
+# Naming one side and not the other leaves the default VG with no physical
+# volume, and partitioning aborts with "No physical volume defined in volume
+# group". Both sides stay unnamed here; partman-auto-lvm/new_vg_name below is
+# what the group is actually called.
 # The root LV is capped at @ROOT_MAX_MB@ MB on purpose: everything left over
 # stays as free extents in VG @VG@, which is where storage_prep carves the
 # @LONGHORN_LV_SIZE@ Longhorn volume. guided_size stays "max" so the VG itself
@@ -76,7 +84,6 @@ d-i partman-auto/expert_recipe string                     \
                       $defaultignore{ }                   \
                       $primary{ }                         \
                       method{ lvm }                       \
-                      vg_name{ @VG@ }                     \
               .                                           \
               20480 @ROOT_MAX_MB@ @ROOT_MAX_MB@ ext4      \
                       $lvmok{ }                           \

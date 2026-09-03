@@ -59,6 +59,9 @@ grep -q "$(cut -d' ' -f2 "$WORK/key.pub")" dist/preseed.cfg || fail "SSH key not
 # 4. root LV is capped, so the VG keeps free extents for the Longhorn LV
 grep -q '20480 61440 61440 ext4' dist/preseed.cfg || fail "root LV is not capped at installer_root_size_gb"
 grep -q 'guided_size string max' dist/preseed.cfg || fail "VG must span the disk"
+# naming the VG on the PV but not on the LV aborts partitioning with
+# "No physical volume defined in volume group" — leave both to new_vg_name
+! grep -v '^#' dist/preseed.cfg | grep -q 'vg_name{' || fail "recipe names the VG on the PV side only"
 ! grep -qE 'method\{ swap \}' dist/preseed.cfg || fail "recipe creates swap; kubelet will not start"
 
 # 5. an unfilled inventory must not produce an image
