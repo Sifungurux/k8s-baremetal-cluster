@@ -1,3 +1,4 @@
 .DS_Store
 *.retry
 inventory/group_vars/vault.yml
+.serena/
