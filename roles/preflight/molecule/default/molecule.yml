@@ -36,6 +36,7 @@ provisioner:
         pod_cidr: "10.244.0.0/16"
         service_cidr: "10.96.0.0/12"
         longhorn_vg: "vg_test"
+        longhorn_lv_size: "1G"
 
 verifier:
   name: ansible

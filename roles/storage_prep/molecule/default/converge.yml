@@ -1,0 +1,13 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  vars:
+    # Fixtures: molecule doesn't read inventory/group_vars, and longhorn_vg /
+    # longhorn_lv_size are CHANGEME there (operator-supplied) anyway.
+    longhorn_vg: "vg_test"
+    longhorn_lv: "longhorn"
+    longhorn_lv_size: "1G"
+    longhorn_mount: "/var/lib/longhorn"
+  roles:
+    - role: storage_prep

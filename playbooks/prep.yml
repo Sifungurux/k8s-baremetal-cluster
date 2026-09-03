@@ -1,0 +1,7 @@
+---
+- name: Prepare all nodes
+  hosts: all
+  gather_facts: true
+  roles:
+    - os_prep
+    - storage_prep
