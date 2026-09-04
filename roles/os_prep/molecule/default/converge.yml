@@ -1,0 +1,8 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  vars:
+    pause_image_version: "9.99-test"  # fixture: molecule doesn't read inventory/group_vars
+  roles:
+    - role: os_prep

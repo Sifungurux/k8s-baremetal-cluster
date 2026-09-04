@@ -1,0 +1,122 @@
+---
+- name: Verify
+  hosts: all
+  tasks:
+    - name: Kernel module config exists
+      ansible.builtin.stat:
+        path: /etc/modules-load.d/k8s.conf
+      register: modconf
+
+    - name: Sysctl config exists
+      ansible.builtin.stat:
+        path: /etc/sysctl.d/99-kubernetes.conf
+      register: sysctlconf
+
+    - name: Assert both are present
+      ansible.builtin.assert:
+        that:
+          - modconf.stat.exists
+          - sysctlconf.stat.exists
+
+    - name: Kernel module config content
+      ansible.builtin.slurp:
+        src: /etc/modules-load.d/k8s.conf
+      register: modconf_content
+
+    - name: Assert required kernel modules present
+      ansible.builtin.assert:
+        that:
+          - "'overlay' in (modconf_content.content | b64decode)"
+          - "'br_netfilter' in (modconf_content.content | b64decode)"
+
+    - name: Sysctl file enables forwarding and bridge filtering
+      ansible.builtin.slurp:
+        src: /etc/sysctl.d/99-kubernetes.conf
+      register: sysctl_content
+
+    - name: Assert required sysctls present
+      ansible.builtin.assert:
+        that:
+          - "'net.ipv4.ip_forward = 1' in (sysctl_content.content | b64decode)"
+          - "'net.bridge.bridge-nf-call-iptables = 1' in (sysctl_content.content | b64decode)"
+
+    - name: Fstab content
+      ansible.builtin.slurp:
+        src: /etc/fstab
+      register: fstab_content
+
+    - name: Assert seeded swap entry was commented out
+      ansible.builtin.assert:
+        that:
+          - "'# UUID=a1b2c3d4-e5f6-47a8-89ab-cdef01234567 none swap sw 0 0' in (fstab_content.content | b64decode)"
+          - >-
+            (fstab_content.content | b64decode).splitlines()
+            | select('match', '^UUID=a1b2c3d4-e5f6-47a8-89ab-cdef01234567')
+            | list | length == 0
+        fail_msg: "swap entry in fstab was not disabled"
+
+    - name: Assert non-swap lines containing 'swap' were left untouched
+      ansible.builtin.assert:
+        that:
+          - "'/dev/sdb1 /swap ext4 defaults 0 2' in (fstab_content.content | b64decode)"
+        fail_msg: "'/dev/sdb1 /swap ext4 defaults 0 2' was wrongly commented out"
+
+    - name: Assert /mnt/swapfiles mount line was left untouched
+      ansible.builtin.assert:
+        that:
+          - "'/dev/sdb2 /mnt/swapfiles ext4 defaults 0 2' in (fstab_content.content | b64decode)"
+        fail_msg: "'/dev/sdb2 /mnt/swapfiles ext4 defaults 0 2' was wrongly commented out"
+
+    - name: Assert LABEL=swap /data mount line was left untouched
+      ansible.builtin.assert:
+        that:
+          - "'LABEL=swap /data ext4 defaults 0 2' in (fstab_content.content | b64decode)"
+        fail_msg: "'LABEL=swap /data ext4 defaults 0 2' was wrongly commented out"
+
+    - name: Assert /data2 mount line with swap in options was left untouched
+      ansible.builtin.assert:
+        that:
+          - "'/dev/sdb3 /data2 ext4 rw,swap 0 2' in (fstab_content.content | b64decode)"
+        fail_msg: "'/dev/sdb3 /data2 ext4 rw,swap 0 2' was wrongly commented out"
+
+    - name: Assert already-commented swap line was not double-commented
+      ansible.builtin.assert:
+        that:
+          - "'# UUID=old-swap none swap sw 0 0' in (fstab_content.content | b64decode)"
+          - "'# # ' not in (fstab_content.content | b64decode)"
+        fail_msg: "'# UUID=old-swap none swap sw 0 0' was double-commented (idempotence broken)"
+
+    - name: containerd config exists with systemd cgroup driver
+      ansible.builtin.slurp:
+        src: /etc/containerd/config.toml
+      register: containerd_conf
+
+    - name: Assert SystemdCgroup is enabled
+      ansible.builtin.assert:
+        that:
+          - "'SystemdCgroup = true' in (containerd_conf.content | b64decode)"
+        fail_msg: "containerd must use the systemd cgroup driver or kubelet will not start"
+
+    - name: Assert pause_image_version rendered into sandbox_image
+      ansible.builtin.assert:
+        that:
+          - "'sandbox_image = \"registry.k8s.io/pause:9.99-test\"' in (containerd_conf.content | b64decode)"
+        fail_msg: "sandbox_image did not render the pinned pause_image_version fixture (9.99-test)"
+
+    - name: Kubelet reservations file content
+      ansible.builtin.slurp:
+        src: /etc/default/kubelet
+      register: kubelet_defaults
+
+    - name: Assert kubelet reservation flags are present
+      ansible.builtin.assert:
+        that:
+          - "'--system-reserved=cpu=500m,memory=1Gi' in (kubelet_defaults.content | b64decode)"
+          - "'--kube-reserved=cpu=500m,memory=1Gi' in (kubelet_defaults.content | b64decode)"
+          - "'--eviction-hard=memory.available<500Mi' in (kubelet_defaults.content | b64decode)"
+        fail_msg: "kubelet reservation flags missing from /etc/default/kubelet"
+
+    - name: Longhorn prerequisites are present
+      ansible.builtin.command: dpkg -s open-iscsi nfs-common
+      register: longhorn_prereqs
+      changed_when: false

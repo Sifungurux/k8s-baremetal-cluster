@@ -1,0 +1,222 @@
+---
+- name: Disable swap for the current boot
+  ansible.builtin.command: swapoff -a
+  when: ansible_swaptotal_mb | default(0) > 0
+  changed_when: ansible_swaptotal_mb | default(0) > 0
+  tags:
+    - hostonly
+
+- name: Verify swap is fully off
+  ansible.builtin.command: swapon --show
+  register: swap_show
+  changed_when: false
+  failed_when: swap_show.stdout | trim != ""
+  tags:
+    - hostonly
+
+- name: Comment out swap entries in fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#\n]*\sswap\s.*)$'
+    replace: '# \1'
+    backup: true
+
+- name: Load required kernel modules at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Load modules now
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+  tags:
+    - hostonly
+
+- name: Set kubernetes sysctls
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-kubernetes.conf
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload sysctl
+
+- name: Install containerd
+  ansible.builtin.apt:
+    name: "containerd={{ containerd_version }}*"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  tags:
+    - hostonly
+
+- name: Hold containerd at the pinned version
+  ansible.builtin.dpkg_selections:
+    name: containerd
+    selection: hold
+  tags:
+    - hostonly
+
+- name: Ensure containerd config directory exists
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write containerd config with the systemd cgroup driver
+  ansible.builtin.template:
+    src: containerd-config.toml.j2
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: "0644"
+  register: containerd_config
+
+# A handler here can't be gated with hostonly (skip-tags does not suppress a
+# notified handler), and containerd itself is only installed on hostonly
+# runs — so the restart is a plain hostonly task instead of notify/handler.
+- name: Restart containerd after a config change
+  ansible.builtin.systemd:
+    name: containerd
+    state: restarted
+    enabled: true
+    daemon_reload: true
+  when: containerd_config is changed
+  tags:
+    - hostonly
+
+- name: Verify containerd is active
+  ansible.builtin.command: systemctl is-active containerd
+  register: containerd_active
+  changed_when: false
+  failed_when: containerd_active.stdout | trim != "active"
+  tags:
+    - hostonly
+
+- name: Verify containerd uses the systemd cgroup driver
+  ansible.builtin.command: containerd config dump
+  register: containerd_dump
+  changed_when: false
+  failed_when: "'SystemdCgroup = true' not in containerd_dump.stdout"
+  tags:
+    - hostonly
+
+- name: Install apt prerequisites
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gpg
+    state: present
+    update_cache: true
+  tags:
+    - hostonly
+
+- name: Ensure apt keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - hostonly
+
+- name: Add the Kubernetes apt signing key
+  ansible.builtin.get_url:
+    url: "https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/Release.key"
+    dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    owner: root
+    group: root
+    mode: "0644"
+  tags:
+    - hostonly
+
+- name: Add the Kubernetes apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc]
+      https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/ /
+    filename: kubernetes
+    state: present
+  tags:
+    - hostonly
+
+- name: Install kubelet, kubeadm, and kubectl
+  ansible.builtin.apt:
+    name:
+      - "kubelet={{ kubernetes_patch_version }}-*"
+      - "kubeadm={{ kubernetes_patch_version }}-*"
+      - "kubectl={{ kubernetes_patch_version }}-*"
+    state: present
+    update_cache: true
+  tags:
+    - hostonly
+
+- name: Hold the kube packages so unattended upgrades cannot move them
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+  tags:
+    - hostonly
+
+- name: Reserve resources for the system and kubelet on control planes
+  ansible.builtin.copy:
+    dest: /etc/default/kubelet
+    content: |
+      KUBELET_EXTRA_ARGS=--system-reserved=cpu=500m,memory=1Gi --kube-reserved=cpu=500m,memory=1Gi --eviction-hard=memory.available<500Mi
+    owner: root
+    group: root
+    mode: "0644"
+  when: inventory_hostname in groups['control_plane']
+  register: kubelet_reservations
+
+# A handler here can't be gated with hostonly (skip-tags does not suppress a
+# notified handler), and kubelet itself is only installed on hostonly
+# runs — so the restart is a plain hostonly task instead of notify/handler.
+- name: Restart kubelet after a config change
+  ansible.builtin.systemd:
+    name: kubelet
+    state: restarted
+    daemon_reload: true
+  when:
+    - kubelet_reservations is changed
+    - inventory_hostname in groups['control_plane']
+  tags:
+    - hostonly
+
+- name: Install Longhorn node prerequisites
+  ansible.builtin.apt:
+    name:
+      - open-iscsi
+      - nfs-common
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enable iscsid
+  ansible.builtin.systemd:
+    name: iscsid
+    enabled: true
+    state: started
+  tags:
+    - hostonly       # containers lack NETLINK_ISCSI; real hosts start it fine
