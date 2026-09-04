@@ -38,7 +38,7 @@ Installer-specific values, all in `all.yml`:
 | Variable | Notes |
 |---|---|
 | `installer_disk` | The install target, e.g. `/dev/nvme0n1`. **This disk is wiped.** Pick an unambiguous device — on a machine where the internal disk is `/dev/sda`, the USB stick may claim that name instead. |
-| `installer_root_size_gb` | Size of the root LV. Everything past it stays free in the VG. |
+| `installer_root_size_gb` | Size of the root LV, in decimal GB (60 → 60 GB → 55.9 GiB). Everything past it stays free in the volume group. |
 | `installer_timezone`, `installer_keymap`, `installer_domain` | Locale and DNS domain. `installer_domain` may be empty. |
 
 `inventory/hosts.yml` supplies two more: the host names become boot menu
@@ -49,6 +49,11 @@ entries, and `all.vars.ansible_user` is the account the image creates.
 > fails if there are none. A stock Debian LVM recipe gives the whole disk to
 > root and would break both. Keep
 > `installer_root_size_gb + longhorn_lv_size` comfortably under the disk size.
+>
+> The cap is enforced by `partman-auto-lvm/guided_size`, not by the recipe's own
+> maximum. Setting that to `max` makes partman hand the last logical volume every
+> free extent in the group and ignore the cap entirely — which is exactly the
+> failure this is here to avoid.
 
 `containerd_version` is pinned to `1.7.24`, the version Debian 13 ships. If you
 rebuild against a different Debian release, re-check it with
@@ -132,6 +137,9 @@ idempotency check rather than the first real run.
   `pkgs.k8s.io`, and Ansible Galaxy. DHCP is assumed.
 - **No PXE.** One USB stick, walked around the rack.
 - **No per-node network config.** Addresses come from DHCP; give the nodes
-  static reservations and put the same addresses in `hosts.yml`.
+  static reservations and put the same addresses in `hosts.yml`. The installer
+  writes the interface it found into `/etc/network/interfaces` by name, so a node
+  whose NIC enumerates differently comes up without a network. That is fine
+  across identical machines and worth knowing if the rack is mixed.
 - **No bootstrap.** The image stops at *prepared for `kubeadm`*, which is where
   this repo currently stops.
