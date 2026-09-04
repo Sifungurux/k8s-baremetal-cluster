@@ -207,19 +207,23 @@ Node roles are inventory-driven by design — moving a node between
 ### 2.2 The nine values preflight asserts
 
 `preflight` asserts exactly these nine are set and not `CHANGEME`. They are the
-ones `os_prep` and `storage_prep` actually consume. One of them,
-`containerd_version`, is pre-filled — see below.
+ones `os_prep` and `storage_prep` actually consume.
+
+Four are already pinned to a coherent, checked set — `kubernetes_version` 1.35,
+`kubernetes_patch_version` 1.35.8, `containerd_version` 1.7.24 and
+`pause_image_version` 3.10.1. Change them together or not at all. That leaves
+five you must supply, all site-specific: `control_plane_vip`, `rack_subnet`,
+`metallb_pool`, `longhorn_vg` and `longhorn_lv_size`.
 
 If you are building the USB installer, [`docs/installer.md`](installer.md) adds
-five more (`installer_*`), and the builder refuses to run while any `CHANGEME`
-remains.
+five more (`installer_*`).
 
 | Variable | How to choose it |
 |---|---|
-| `kubernetes_version` | Minor only, e.g. `"1.34"`. The spec advises one release behind newest. See the discovery command below. |
-| `kubernetes_patch_version` | Full `major.minor.patch`, e.g. `"1.34.11"`. Must exist in the apt repo — `os_prep` installs `kubelet={{ kubernetes_patch_version }}-*` and fails hard if it does not. |
+| `kubernetes_version` | Minor only. Pinned to `"1.35"`, one release behind newest as the spec advises. See the discovery command below before moving it. |
+| `kubernetes_patch_version` | Full `major.minor.patch`, pinned to `"1.35.8"`. Must exist in the apt repo — `os_prep` installs `kubelet={{ kubernetes_patch_version }}-*` and fails hard if it does not. |
 | `containerd_version` | Pre-filled with `1.7.24`, what Debian 13 ships and what the USB installer image installs. On any other base OS, discover it per-node: `apt-cache madison containerd`. |
-| `pause_image_version` | e.g. `"3.10"`. Tracks the Kubernetes minor. Easiest to confirm *after* prep — see below. |
+| `pause_image_version` | Pinned to `"3.10.1"`, taken from kubeadm's own constants on `release-1.35`. Tracks the Kubernetes minor; confirm after prep if you move it — see below. |
 | `control_plane_vip` | A single free IP on the rack VLAN, outside DHCP. |
 | `rack_subnet` | e.g. `"10.20.0.0/24"`. |
 | `metallb_pool` | Contiguous range, e.g. `"10.20.0.200-10.20.0.250"`. Parsed by splitting on `-`, so the exact `start-end` form matters. |
@@ -248,13 +252,20 @@ ansible cp1 -m shell -a "kubeadm config images list | grep pause"
 Correct the value and re-run `make prep` if it disagrees. Prep is idempotent, so
 this is cheap.
 
-### 2.3 The six you can leave as `CHANGEME` for now
+### 2.3 The platform versions
 
-`kube_vip_version`, `kube_vip_interface`, `cilium_version`, `metallb_version`,
-`ingress_nginx_version`, `longhorn_version`.
+`kube_vip_version`, `cilium_version`, `metallb_version`, `ingress_nginx_version`
+and `longhorn_version` are pinned to a set that is coherent with Kubernetes 1.35
+— Cilium 1.20.1 is e2e tested on 1.33-1.36, ingress-nginx chart 4.15.1 supports
+1.31-1.35 (4.14.x stops at 1.34, so that is a floor, not a ceiling), Longhorn
+1.12.1 needs 1.25 or later.
 
-Preflight deliberately does not assert these — only the unbuilt bootstrap and
-platform stages read them. Fill them in when those stages exist.
+Nothing exercises them yet: only the unbuilt bootstrap and platform stages read
+them, and preflight deliberately does not assert them. Re-check them against
+their own compatibility tables when those stages get written.
+
+`kube_vip_interface` is the one still left as `CHANGEME` — it is the rack VLAN
+interface name (e.g. `eno1`), which no one can guess for you.
 
 ### 2.4 The non-overlap rules preflight enforces
 

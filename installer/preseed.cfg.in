@@ -53,7 +53,7 @@ d-i user-setup/encrypt-home boolean false
 # gives the last logical volume every free extent in the group and ignores the
 # recipe's own cap. The disk ends up with a root LV the size of the whole disk
 # and nothing left for Longhorn.
-d-i partman-auto/disk string @DISK@
+@DISK_SELECT@
 d-i partman-auto/method string lvm
 d-i partman-auto-lvm/new_vg_name string @VG@
 d-i partman-auto-lvm/guided_size string @ROOT_SIZE@
@@ -114,9 +114,8 @@ d-i pkgsel/upgrade select full-upgrade
 d-i pkgsel/update-policy select none
 popularity-contest/participate boolean false
 
-### Bootloader
+### Bootloader — the target device is set alongside the disk selection above
 d-i grub-installer/only_debian boolean true
-d-i grub-installer/bootdev string @DISK@
 
 ### Hand off to Ansible
 #

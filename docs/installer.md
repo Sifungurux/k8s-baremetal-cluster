@@ -30,14 +30,22 @@ the image locks the root account and sets no user password.
 
 ## 2. Fill in the inventory
 
-The builder refuses to run while `inventory/group_vars/all.yml` still holds a
-`CHANGEME` — a placeholder here only shows up as a failed install at the rack.
+The builder refuses to run while a value it actually reads is still `CHANGEME`,
+and names the ones it wants — a placeholder here only shows up as a failed
+install at the rack. Out of the box that is three: `longhorn_vg`,
+`longhorn_lv_size` and `installer_disk`, plus `ansible_user` in `hosts.yml`.
+
+It deliberately does *not* demand the bootstrap-stage values — `control_plane_vip`,
+`rack_subnet`, `metallb_pool`, `kube_vip_interface` and the platform versions.
+Nothing in the image reads them, and requiring them would only invite invented
+numbers. The Kubernetes, containerd and pause versions are already pinned to a
+coherent set.
 
 Installer-specific values, all in `all.yml`:
 
 | Variable | Notes |
 |---|---|
-| `installer_disk` | The install target, e.g. `/dev/nvme0n1`. **This disk is wiped.** Pick an unambiguous device — on a machine where the internal disk is `/dev/sda`, the USB stick may claim that name instead. |
+| `installer_disk` | The install target, e.g. `/dev/nvme0n1`. **This disk is wiped.** On a node with a single internal disk, `"auto"` is safer: it takes the first disk that is not the medium you booted from, so a USB stick that enumerates ahead of the internal disk cannot steal the name. |
 | `installer_root_size_gb` | Size of the root LV, in decimal GB (60 → 60 GB → 55.9 GiB). Everything past it stays free in the volume group. |
 | `installer_timezone`, `installer_keymap`, `installer_domain` | Locale and DNS domain. `installer_domain` may be empty. |
 
@@ -49,6 +57,13 @@ entries, and `all.vars.ansible_user` is the account the image creates.
 > fails if there are none. A stock Debian LVM recipe gives the whole disk to
 > root and would break both. Keep
 > `installer_root_size_gb + longhorn_lv_size` comfortably under the disk size.
+>
+> Nodes with different disks want different Longhorn volumes, and
+> `longhorn_lv_size` is an ordinary inventory variable — put the majority case in
+> `group_vars/all.yml` and override the exception in `group_vars/<group>.yml`.
+> This rack does exactly that: `all.yml` carries the control-plane size and
+> `group_vars/workers.yml` raises it for the 1 TB workers. The image itself does
+> not care; `storage_prep` reads it per node on first boot.
 >
 > The cap is enforced by `partman-auto-lvm/guided_size`, not by the recipe's own
 > maximum. Setting that to `max` makes partman hand the last logical volume every

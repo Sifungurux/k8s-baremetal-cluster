@@ -1,0 +1,9 @@
+---
+# Workers have the 1 TB disks. Everything else comes from all.yml, which holds
+# the smaller control-plane sizing — group_vars beat all.yml, so this is the
+# only value that has to differ.
+#
+# Budget: the VG spans the disk less ~1.5 GiB of /boot and ESP, and the root LV
+# takes installer_root_size_gb (60 GB = 55.9 GiB). On a 1 TB disk that leaves
+# roughly 873 GiB free, so 800G lands with ~73 GiB of headroom.
+longhorn_lv_size: "800G"

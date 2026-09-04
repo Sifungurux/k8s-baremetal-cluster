@@ -1,28 +1,43 @@
 ---
 # Pinned versions — no floating tags. Bump deliberately.
-kubernetes_version: "CHANGEME"        # minor only, e.g. "1.33" — selects the apt repo
-kubernetes_patch_version: "CHANGEME"  # full version for kubeadm, e.g. "1.33.4"
+#
+# This set is coherent as of 2026-09-04, built around Kubernetes 1.35 (one minor
+# behind 1.36, per the design doc). Checked, not remembered:
+#   cilium 1.20.1        e2e tested on k8s 1.33-1.36
+#   ingress-nginx 4.15.1 controller 1.15.1, supports k8s 1.31-1.35
+#                        (chart 4.14.x tops out at 1.34 — do not downgrade)
+#   longhorn 1.12.1      minimum k8s 1.25
+#   pause 3.10.1         from kubeadm's own constants on release-1.35
+# Only kubernetes_*, containerd_version and pause_image_version are exercised
+# today; the rest are read by the unbuilt bootstrap and platform stages, so
+# re-check them against their compatibility tables when those get written.
+kubernetes_version: "1.35"        # minor only, e.g. "1.33" — selects the apt repo
+kubernetes_patch_version: "1.35.8"  # full version for kubeadm, e.g. "1.33.4"
 containerd_version: "1.7.24"        # the version trixie ships; the installer image is Debian 13
-pause_image_version: "CHANGEME"       # tracks kubernetes_version, e.g. "3.10"
-kube_vip_version: "CHANGEME"          # e.g. v0.8.x
+pause_image_version: "3.10.1"       # tracks kubernetes_version, e.g. "3.10"
+kube_vip_version: "v1.2.3"          # e.g. v0.8.x
 kube_vip_interface: "CHANGEME"        # rack VLAN interface, e.g. eno1
-cilium_version: "CHANGEME"
-metallb_version: "CHANGEME"
-ingress_nginx_version: "CHANGEME"
-longhorn_version: "CHANGEME"
+cilium_version: "1.20.1"
+metallb_version: "0.16.1"
+ingress_nginx_version: "4.15.1"
+longhorn_version: "1.12.1"
 
 # Network — all four must not overlap
-control_plane_vip: "CHANGEME"          # single free IP on the rack VLAN
+control_plane_vip: "192.168.150.21"    # free IP above the .1-.20 node range
 control_plane_endpoint: "{{ control_plane_vip }}:6443"
-rack_subnet: "CHANGEME"                # e.g. 10.20.0.0/24
+rack_subnet: "192.168.150.0/26"        # usable .1-.62; .1 left for the gateway
 pod_cidr: "10.244.0.0/16"
 service_cidr: "10.96.0.0/12"
-metallb_pool: "CHANGEME"               # e.g. 10.20.0.200-10.20.0.250
+metallb_pool: "192.168.150.32-192.168.150.62"  # 31 LoadBalancer IPs; .22-.31 spare
 
 # Storage
-longhorn_vg: "CHANGEME"                # volume group name from the OS install
+longhorn_vg: "rackvg"                  # the installer creates this VG; storage_prep carves
+                                       # the Longhorn LV out of it. Only change it if you
+                                       # installed the OS yourself and used another name.
 longhorn_lv: "longhorn"
-longhorn_lv_size: "CHANGEME"           # e.g. 400G
+longhorn_lv_size: "150G"           # control-plane sizing (~256 GB disks): the VG is
+                                   # ~237 GiB, root takes 56 GiB, leaving ~181 GiB free.
+                                   # Workers override this in group_vars/workers.yml.
 longhorn_mount: "/var/lib/longhorn"
 
 # v1 posture: control planes carry workloads because Longhorn needs 3 schedulable nodes.
@@ -30,7 +45,7 @@ longhorn_mount: "/var/lib/longhorn"
 untaint_control_planes: true
 
 # Installer image — installer/build-iso.sh, docs/installer.md
-installer_disk: "CHANGEME"             # install target, e.g. /dev/nvme0n1 — THIS DISK IS WIPED
+installer_disk: "/dev/sda"             # install target, e.g. /dev/nvme0n1 — THIS DISK IS WIPED
 installer_root_size_gb: 60             # root LV; the rest of the VG stays free for longhorn_lv_size
 installer_timezone: "Europe/Copenhagen"
 installer_keymap: "us"
