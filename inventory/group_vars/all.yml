@@ -2,7 +2,7 @@
 # Pinned versions — no floating tags. Bump deliberately.
 kubernetes_version: "CHANGEME"        # minor only, e.g. "1.33" — selects the apt repo
 kubernetes_patch_version: "CHANGEME"  # full version for kubeadm, e.g. "1.33.4"
-containerd_version: "CHANGEME"
+containerd_version: "1.7.24"        # the version trixie ships; the installer image is Debian 13
 pause_image_version: "CHANGEME"       # tracks kubernetes_version, e.g. "3.10"
 kube_vip_version: "CHANGEME"          # e.g. v0.8.x
 kube_vip_interface: "CHANGEME"        # rack VLAN interface, e.g. eno1
@@ -28,3 +28,10 @@ longhorn_mount: "/var/lib/longhorn"
 # v1 posture: control planes carry workloads because Longhorn needs 3 schedulable nodes.
 # Flip to false once a 6th node exists.
 untaint_control_planes: true
+
+# Installer image — installer/build-iso.sh, docs/installer.md
+installer_disk: "CHANGEME"             # install target, e.g. /dev/nvme0n1 — THIS DISK IS WIPED
+installer_root_size_gb: 60             # root LV; the rest of the VG stays free for longhorn_lv_size
+installer_timezone: "Europe/Copenhagen"
+installer_keymap: "us"
+installer_domain: ""                   # DNS domain for the nodes; empty is fine
