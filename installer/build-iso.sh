@@ -77,22 +77,54 @@ ADMIN_USER=$(get '.all.vars.ansible_user' "$HOSTS")
 
 [ "$ADMIN_USER" != "CHANGEME" ] && [ "$ADMIN_USER" != "null" ] \
     || die "set all.vars.ansible_user in $HOSTS — it is the account the image creates"
-[ -r "$KEY" ] || die "no SSH public key at $KEY — pass --key; without one the nodes are unreachable"
+if [ ! -r "$KEY" ]; then
+    # The key is the only way into a finished node, so say what is available
+    # rather than just naming the path that was missing. An agent-held key
+    # (1Password and friends) has no file — write the line you want to a file.
+    echo "build-iso: no SSH public key at $KEY — pass --key PUBKEY." >&2
+    echo "  on disk:" >&2
+    ls -1 "$HOME"/.ssh/*.pub 2>/dev/null | sed 's/^/    /' >&2 || echo "    (none)" >&2
+    if ssh-add -L >/dev/null 2>&1; then
+        echo "  in your ssh-agent (no file — redirect one into a .pub to use it):" >&2
+        ssh-add -L 2>/dev/null | awk '{print "    " $1, substr($2,1,24) "...", $3}' >&2
+    fi
+    exit 1
+fi
 case "$(cat "$KEY")" in
     ssh-*|ecdsa-*) : ;;
     *) die "$KEY does not look like an SSH public key" ;;
 esac
 
 # partman reads decimal GB here; the recipe wants MB, so both come from one value.
+mkdir -p dist
+
+# installer_disk may name a device, or "auto" to take the first disk that is not
+# the installer medium. "auto" is the safer choice on a node with a single
+# internal disk, because a USB stick can enumerate ahead of it and claim /dev/sda.
+if [ "$DISK" = auto ]; then
+    cat > dist/disk-select.cfg <<'AUTO'
+# Take the first disk that is not the medium we booted from.
+d-i partman/early_command string \
+    MEDIA=$(mount | sed -n 's#^\([^ ]*\) on /cdrom .*#\1#p' | sed 's/[0-9]*$//; s/p$//'); \
+    DISK=$(list-devices disk | grep -v "^$MEDIA$" | head -n1); \
+    [ -n "$DISK" ] || exit 1; \
+    debconf-set partman-auto/disk "$DISK"; \
+    debconf-set grub-installer/bootdev "$DISK"
+AUTO
+else
+    printf 'd-i partman-auto/disk string %s\nd-i grub-installer/bootdev string %s\n' "$DISK" "$DISK" \
+        > dist/disk-select.cfg
+fi
+
 ROOT_SIZE="$ROOT_GB GB"
 ROOT_MAX_MB=$((ROOT_GB * 1024))
-mkdir -p dist
 
 ### 1. preseed
 sed \
     -e "s|@VG@|$VG|g" \
     -e "s|@LONGHORN_LV_SIZE@|$LV_SIZE|g" \
-    -e "s|@DISK@|$DISK|g" \
+    -e "/@DISK_SELECT@/r dist/disk-select.cfg" \
+    -e "/@DISK_SELECT@/d" \
     -e "s|@ROOT_MAX_MB@|$ROOT_MAX_MB|g" \
     -e "s|@ROOT_SIZE@|$ROOT_SIZE|g" \
     -e "s|@TIMEZONE@|$TIMEZONE|g" \

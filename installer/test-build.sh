@@ -56,6 +56,7 @@ grep -q '^set timeout=-1$' dist/k8s-menu.cfg || fail "boot menu has a timeout"
 ! grep -q '@[A-Z_]*@' dist/preseed.cfg || fail "unsubstituted placeholder in preseed"
 grep -q 'partman-auto-lvm/new_vg_name string rackvg' dist/preseed.cfg || fail "VG name not substituted"
 grep -q 'partman-auto/disk string /dev/nvme0n1' dist/preseed.cfg || fail "disk not substituted"
+grep -q 'grub-installer/bootdev string /dev/nvme0n1' dist/preseed.cfg || fail "bootdev not substituted"
 grep -q 'passwd/username string rackadm' dist/preseed.cfg || fail "admin user not taken from inventory"
 grep -q "$(cut -d' ' -f2 "$WORK/key.pub")" dist/preseed.cfg || fail "SSH key not embedded"
 
@@ -80,6 +81,15 @@ sed -i.bak 's/CHANGEME/rackvg/' "$WORK/all.yml"
 if VARS=$WORK/all.yml HOSTS=$WORK/hosts.yml installer/build-iso.sh --dry-run --key "$WORK/nope.pub" >/dev/null 2>&1; then
     fail "built an image with no SSH key"
 fi
+
+# 6b. installer_disk: auto defers the choice to install time, so one image can
+#     target the first internal disk without naming it
+sed -i.bak 's|/dev/nvme0n1|auto|' "$WORK/all.yml"
+VARS=$WORK/all.yml HOSTS=$WORK/hosts.yml installer/build-iso.sh --dry-run --key "$WORK/key.pub" >/dev/null
+grep -q 'partman/early_command' dist/preseed.cfg || fail "auto disk did not emit an early_command"
+grep -q 'list-devices disk' dist/preseed.cfg || fail "auto disk does not enumerate disks"
+! grep -q 'partman-auto/disk string' dist/preseed.cfg || fail "auto disk still hardcodes a device"
+sed -i.bak 's|installer_disk: "auto"|installer_disk: "/dev/nvme0n1"|' "$WORK/all.yml"
 
 # 7. the platform versions belong to the unbuilt bootstrap stage — leaving one
 #    as CHANGEME must not block an image the stage has nothing to do with

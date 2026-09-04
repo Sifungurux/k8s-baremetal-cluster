@@ -14,7 +14,7 @@ help:
 	@echo ""
 	@echo "  k8s-baremetal-cluster"
 	@echo ""
-	@echo "    make iso         Build the USB installer image (dist/)"
+	@echo "    make iso         Build the USB installer image (dist/); KEY=... to pick a key"
 	@echo "    make iso-check   Check the generated preseed and boot menu"
 	@echo "    make deps        Install Ansible collections"
 	@echo "    make preflight   Validate inventory and network (changes nothing)"
@@ -26,9 +26,12 @@ help:
 	@echo "    make reset       DESTRUCTIVE: kubeadm reset all nodes"
 	@echo ""
 
+# Override with: make iso KEY=~/.ssh/other.pub
+KEY ?= $(HOME)/.ssh/rack_ecdsa.pub
+
 .PHONY: iso
 iso:
-	installer/build-iso.sh
+	installer/build-iso.sh --key $(KEY)
 
 .PHONY: iso-check
 iso-check:
