@@ -3,6 +3,16 @@ version = 2
 [plugins."io.containerd.grpc.v1.cri"]
   sandbox_image = "registry.k8s.io/pause:{{ pause_image_version }}"
 
+# Debian's containerd defaults bin_dir to /usr/lib/cni, but every CNI in the
+# Kubernetes ecosystem — Cilium included — installs its plugin to /opt/cni/bin,
+# and that is where kubelet looks too. Leaving the Debian default gives a node
+# that reports Ready while no pod can obtain networking: the CNI DaemonSet runs
+# fine, and every sandbox fails with "failed to find plugin in path
+# [/usr/lib/cni]". Nothing before the first workload notices.
+[plugins."io.containerd.grpc.v1.cri".cni]
+  bin_dir = "/opt/cni/bin"
+  conf_dir = "/etc/cni/net.d"
+
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
   runtime_type = "io.containerd.runc.v2"
 
