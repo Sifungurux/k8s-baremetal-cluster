@@ -12,10 +12,10 @@ HOST=$(hostname -s)
 cd "$REPO"
 export ANSIBLE_CONFIG="$REPO/ansible.cfg"
 
-# network-online.target is reached when the interface is configured, which on a
-# DHCP node can still be before DNS answers — and everything below (Galaxy, the
-# apt repos, pkgs.k8s.io) needs names. Wait for resolution rather than burning a
-# boot cycle on the race.
+# network-online.target only promises the interface is configured, not that DNS
+# answers, and everything below (Galaxy, the apt repos, pkgs.k8s.io) needs names.
+# Wait for resolution rather than failing the run, and give a node with no
+# network at all a clear message instead of a Galaxy stack trace.
 waited=0
 while ! getent hosts deb.debian.org >/dev/null 2>&1; do
     waited=$((waited + 5))
