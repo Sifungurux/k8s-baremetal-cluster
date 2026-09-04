@@ -16,7 +16,9 @@ kubernetes_patch_version: "1.35.8"  # full version for kubeadm, e.g. "1.33.4"
 containerd_version: "1.7.24"        # the version trixie ships; the installer image is Debian 13
 pause_image_version: "3.10.1"       # tracks kubernetes_version, e.g. "3.10"
 kube_vip_version: "v1.2.3"          # e.g. v0.8.x
-kube_vip_interface: "CHANGEME"        # rack VLAN interface, e.g. eno1
+kube_vip_interface: ""                # rack VLAN interface, e.g. eno1. Empty means
+                                      # "use the default-route interface", which is
+                                      # right for a single-NIC node.
 cilium_version: "1.20.1"
 metallb_version: "0.16.1"
 ingress_nginx_version: "4.15.1"

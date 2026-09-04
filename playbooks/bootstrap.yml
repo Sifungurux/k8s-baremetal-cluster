@@ -1,0 +1,27 @@
+---
+# Stops at a running control plane. Joining the remaining control planes and the
+# workers is the next task; this playbook grows a play at a time so that every
+# stage is runnable on its own.
+
+- name: Place the control-plane VIP
+  hosts: control_plane
+  gather_facts: true
+  roles:
+    - kube_vip
+
+# serial: 1 matters once cp2 and cp3 join — concurrent etcd member additions can
+# lose quorum. It costs nothing on a single control plane.
+- name: Bootstrap the control plane
+  hosts: control_plane
+  serial: 1
+  gather_facts: true
+  roles:
+    - control_plane
+
+# Second pass: admin.conf now exists and its RBAC is reconciled, so kube-vip
+# moves off the bootstrap super-admin credential.
+- name: Re-point kube-vip at the ordinary admin kubeconfig
+  hosts: control_plane
+  gather_facts: true
+  roles:
+    - kube_vip
