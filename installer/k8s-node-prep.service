@@ -1,0 +1,19 @@
+[Unit]
+Description=Kubernetes node prep (first boot)
+Documentation=file:///opt/k8s-baremetal-cluster/docs/installer.md
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=!/var/lib/k8s-node-prep.done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/k8s-baremetal-cluster
+ExecStart=/opt/k8s-baremetal-cluster/installer/firstboot.sh
+# Headless rack: failures have to be visible on the KVM, not only in the journal.
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=multi-user.target

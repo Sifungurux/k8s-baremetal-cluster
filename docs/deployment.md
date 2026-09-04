@@ -20,9 +20,15 @@ five-node rack.
 
 ### 0.1 The operating system
 
-**Yes — a full OS must already be installed and running on all five servers.**
-This repo does no bare-metal provisioning: there is no PXE, no netboot, no
-installer automation. Ansible connects over SSH to machines that already boot.
+**A full OS must be installed and running on all five servers before the
+controller can do anything.** Ansible connects over SSH to machines that
+already boot.
+
+You have two ways to get there. Build the USB installer image
+([`docs/installer.md`](installer.md), `make iso`) and boot each node from it —
+it installs Debian 13 and runs `prep.yml` on the node itself, so the servers
+arrive at Part 3 of this guide already prepared. Or install Debian by hand and
+meet the preconditions below. There is still no PXE or netboot.
 
 | | |
 |---|---|
@@ -198,16 +204,21 @@ all:
 Node roles are inventory-driven by design — moving a node between
 `control_plane` and `workers` is an inventory edit, not a rewrite.
 
-### 2.2 The nine values you must set now
+### 2.2 The nine values preflight asserts
 
 `preflight` asserts exactly these nine are set and not `CHANGEME`. They are the
-ones `os_prep` and `storage_prep` actually consume:
+ones `os_prep` and `storage_prep` actually consume. One of them,
+`containerd_version`, is pre-filled — see below.
+
+If you are building the USB installer, [`docs/installer.md`](installer.md) adds
+five more (`installer_*`), and the builder refuses to run while any `CHANGEME`
+remains.
 
 | Variable | How to choose it |
 |---|---|
 | `kubernetes_version` | Minor only, e.g. `"1.34"`. The spec advises one release behind newest. See the discovery command below. |
 | `kubernetes_patch_version` | Full `major.minor.patch`, e.g. `"1.34.11"`. Must exist in the apt repo — `os_prep` installs `kubelet={{ kubernetes_patch_version }}-*` and fails hard if it does not. |
-| `containerd_version` | Discover per-node: `apt-cache madison containerd`. |
+| `containerd_version` | Pre-filled with `1.7.24`, what Debian 13 ships and what the USB installer image installs. On any other base OS, discover it per-node: `apt-cache madison containerd`. |
 | `pause_image_version` | e.g. `"3.10"`. Tracks the Kubernetes minor. Easiest to confirm *after* prep — see below. |
 | `control_plane_vip` | A single free IP on the rack VLAN, outside DHCP. |
 | `rack_subnet` | e.g. `"10.20.0.0/24"`. |
