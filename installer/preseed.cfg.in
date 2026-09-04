@@ -44,14 +44,19 @@ d-i user-setup/encrypt-home boolean false
 # volume, and partitioning aborts with "No physical volume defined in volume
 # group". Both sides stay unnamed here; partman-auto-lvm/new_vg_name below is
 # what the group is actually called.
-# The root LV is capped at @ROOT_MAX_MB@ MB on purpose: everything left over
-# stays as free extents in VG @VG@, which is where storage_prep carves the
-# @LONGHORN_LV_SIZE@ Longhorn volume. guided_size stays "max" so the VG itself
-# spans the whole disk — it caps the volume group, not the logical volume.
+# The volume group spans the disk, but guided_size caps how much of it the
+# logical volumes may consume — so root gets @ROOT_SIZE@ and the remainder stays
+# as free extents in VG @VG@, which is where storage_prep carves the
+# @LONGHORN_LV_SIZE@ Longhorn volume and what preflight checks for.
+#
+# guided_size must NOT be "max": that sets partman-auto-lvm's use_all, which
+# gives the last logical volume every free extent in the group and ignores the
+# recipe's own cap. The disk ends up with a root LV the size of the whole disk
+# and nothing left for Longhorn.
 d-i partman-auto/disk string @DISK@
 d-i partman-auto/method string lvm
 d-i partman-auto-lvm/new_vg_name string @VG@
-d-i partman-auto-lvm/guided_size string max
+d-i partman-auto-lvm/guided_size string @ROOT_SIZE@
 d-i partman-lvm/device_remove_lvm boolean true
 d-i partman-md/device_remove_md boolean true
 d-i partman-lvm/confirm boolean true

@@ -74,6 +74,8 @@ case "$(cat "$KEY")" in
     *) die "$KEY does not look like an SSH public key" ;;
 esac
 
+# partman reads decimal GB here; the recipe wants MB, so both come from one value.
+ROOT_SIZE="$ROOT_GB GB"
 ROOT_MAX_MB=$((ROOT_GB * 1024))
 mkdir -p dist
 
@@ -83,6 +85,7 @@ sed \
     -e "s|@LONGHORN_LV_SIZE@|$LV_SIZE|g" \
     -e "s|@DISK@|$DISK|g" \
     -e "s|@ROOT_MAX_MB@|$ROOT_MAX_MB|g" \
+    -e "s|@ROOT_SIZE@|$ROOT_SIZE|g" \
     -e "s|@TIMEZONE@|$TIMEZONE|g" \
     -e "s|@KEYMAP@|$KEYMAP|g" \
     -e "s|@DOMAIN@|$DOMAIN|g" \

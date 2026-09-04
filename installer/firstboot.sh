@@ -12,6 +12,20 @@ HOST=$(hostname -s)
 cd "$REPO"
 export ANSIBLE_CONFIG="$REPO/ansible.cfg"
 
+# network-online.target is reached when the interface is configured, which on a
+# DHCP node can still be before DNS answers — and everything below (Galaxy, the
+# apt repos, pkgs.k8s.io) needs names. Wait for resolution rather than burning a
+# boot cycle on the race.
+waited=0
+while ! getent hosts deb.debian.org >/dev/null 2>&1; do
+    waited=$((waited + 5))
+    if [ "$waited" -ge 300 ]; then
+        echo "k8s-node-prep: no DNS after ${waited}s — check the node's network." >&2
+        exit 1
+    fi
+    sleep 5
+done
+
 # ansible-playbook --limit with a name that is not in the inventory prints
 # "no hosts matched" and exits 0 — which would leave the node unprepped while
 # looking like a clean install. Check membership before running anything.
