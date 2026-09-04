@@ -50,13 +50,22 @@ die() { echo "build-iso: $*" >&2; exit 1; }
 
 command -v yq >/dev/null || die "yq is required (brew install yq)"
 
-# Everything the first-boot playbook needs has to be real before an image is
-# worth burning — a CHANGEME only surfaces as a failed install at the rack.
-if grep -q CHANGEME "$VARS"; then
-    die "fill in $VARS first — still CHANGEME: $(grep -c CHANGEME "$VARS") value(s)"
-fi
-
 get() { yq -r "$1" "$2"; }
+
+# Everything the image or the first-boot playbook reads has to be real before an
+# image is worth burning — a CHANGEME only surfaces as a failed install at the
+# rack. Deliberately not the whole file: control_plane_vip, rack_subnet,
+# metallb_pool, kube_vip_interface and the platform versions belong to the
+# unbuilt bootstrap stage, and demanding them here only invites invented values.
+missing=
+for key in kubernetes_version kubernetes_patch_version containerd_version \
+           longhorn_vg longhorn_lv longhorn_lv_size longhorn_mount \
+           installer_disk installer_root_size_gb installer_timezone installer_keymap; do
+    case "$(get ".$key" "$VARS")" in
+        CHANGEME|null|"") missing="$missing $key" ;;
+    esac
+done
+[ -z "$missing" ] || die "fill these in $VARS before building an image:$missing"
 VG=$(get '.longhorn_vg' "$VARS")
 LV_SIZE=$(get '.longhorn_lv_size' "$VARS")
 DISK=$(get '.installer_disk' "$VARS")

@@ -30,8 +30,16 @@ the image locks the root account and sets no user password.
 
 ## 2. Fill in the inventory
 
-The builder refuses to run while `inventory/group_vars/all.yml` still holds a
-`CHANGEME` — a placeholder here only shows up as a failed install at the rack.
+The builder refuses to run while a value it actually reads is still `CHANGEME`,
+and names the ones it wants — a placeholder here only shows up as a failed
+install at the rack. Out of the box that is three: `longhorn_vg`,
+`longhorn_lv_size` and `installer_disk`, plus `ansible_user` in `hosts.yml`.
+
+It deliberately does *not* demand the bootstrap-stage values — `control_plane_vip`,
+`rack_subnet`, `metallb_pool`, `kube_vip_interface` and the platform versions.
+Nothing in the image reads them, and requiring them would only invite invented
+numbers. The Kubernetes, containerd and pause versions are already pinned to a
+coherent set.
 
 Installer-specific values, all in `all.yml`:
 
