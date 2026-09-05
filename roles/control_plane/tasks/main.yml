@@ -1,0 +1,54 @@
+---
+- name: Check whether this node is already initialised
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: admin_conf
+
+- name: Render the kubeadm config on the first control plane
+  ansible.builtin.template:
+    src: kubeadm-config.yaml.j2
+    dest: /etc/kubernetes/kubeadm-config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  when: inventory_hostname == groups['control_plane'][0]
+
+# The control-plane health check gives the API server four minutes. Pulling
+# etcd and the apiserver inside that window is a race on a cold node with a slow
+# link, and a lost race fails init rather than merely delaying it.
+- name: Pre-pull the control-plane images
+  ansible.builtin.command:
+    cmd: kubeadm config images pull --config /etc/kubernetes/kubeadm-config.yaml
+  when:
+    - inventory_hostname == groups['control_plane'][0]
+    - not admin_conf.stat.exists
+  register: images_pull
+  changed_when: images_pull.rc == 0
+
+- name: Initialise the first control plane
+  ansible.builtin.command:
+    cmd: kubeadm init --config /etc/kubernetes/kubeadm-config.yaml --upload-certs
+  when:
+    - inventory_hostname == groups['control_plane'][0]
+    - not admin_conf.stat.exists
+  register: kubeadm_init
+  changed_when: kubeadm_init.rc == 0
+
+- name: Give the operator a working kubectl
+  ansible.builtin.file:
+    path: /root/.kube
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: inventory_hostname == groups['control_plane'][0]
+
+- name: Install the admin kubeconfig for root
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0600"
+  when: inventory_hostname == groups['control_plane'][0]

@@ -19,7 +19,8 @@ help:
 	@echo "    make deps        Install Ansible collections"
 	@echo "    make preflight   Validate inventory and network (changes nothing)"
 	@echo "    make prep        OS + storage prep on all nodes"
-	@echo "    make bootstrap   kubeadm init, joins, CNI"
+	@echo "    make bootstrap   kubeadm init and the control-plane VIP"
+	@echo "    make cilium      CNI — nodes stay NotReady until this runs"
 	@echo "    make platform    MetalLB, ingress-nginx, Longhorn"
 	@echo "    make kubeconfig  Fetch admin.conf as context 'rack'"
 	@echo "    make verify      Cluster smoke test"
@@ -53,3 +54,18 @@ prep: preflight
 .PHONY: bootstrap
 bootstrap:
 	$(ANSIBLE) playbooks/bootstrap.yml
+
+# Until Cilium runs, every node is NotReady and there is no pod networking.
+# That is the expected state after bootstrap, not a fault.
+# Run this once every node has joined: operator.replicas is 2, so --wait fails
+# on a cluster with only one schedulable node.
+.PHONY: cilium
+cilium:
+	helm repo add cilium https://helm.cilium.io/
+	helm repo update cilium
+	helm upgrade --install cilium cilium/cilium \
+		--version $(CILIUM_VERSION) \
+		--namespace kube-system \
+		-f platform/cilium/values.yaml \
+		--wait --timeout 10m
+	kubectl wait --for=condition=Ready nodes --all --timeout=300s

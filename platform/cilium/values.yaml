@@ -1,0 +1,15 @@
+---
+# Cilium replaces nothing else in the stack: kube-proxy stays in place for the
+# initial bring-up, so a CNI problem cannot also take out service routing.
+# Switching to kubeProxyReplacement is a deliberate later change, not a default.
+kubeProxyReplacement: false
+
+ipam:
+  # Node PodCIDRs come from kube-controller-manager, which allocates them
+  # because kubeadm was given podSubnet in ClusterConfiguration.
+  mode: kubernetes
+
+operator:
+  # One per control plane would be three; two is enough to survive a node loss
+  # without pinning the cluster to an odd number of operators.
+  replicas: 2

@@ -1,0 +1,61 @@
+---
+# The VIP has to answer before `kubeadm init` finishes, because init takes it as
+# --control-plane-endpoint. The manifest is dropped into the static pod
+# directory so the kubelet starts it the moment it comes up during init.
+
+# A rack with one NIC does not need the operator to name it. kube_vip_interface
+# stays available as an override for hosts where the default route is not the
+# rack VLAN.
+# Kubernetes 1.29 restricted admin.conf's permissions during bootstrap, which
+# used to force a swap to super-admin.conf for the init window
+# (https://github.com/kube-vip/kube-vip/issues/684). Verified not to be needed
+# on the pinned k8s 1.35 / kube-vip v1.2.3: kube-vip took the lease with plain
+# admin.conf from the first moment of init. Revisit if you move either pin.
+- name: Resolve the interface the VIP is advertised on
+  ansible.builtin.set_fact:
+    kube_vip_kubeconfig: /etc/kubernetes/admin.conf
+    kube_vip_iface: "{{ kube_vip_interface | default('', true) or ansible_default_ipv4.interface }}"
+
+- name: Fail early if no interface could be determined
+  ansible.builtin.assert:
+    that:
+      - kube_vip_iface | length > 0
+    fail_msg: >-
+      Could not determine the VIP interface. Set kube_vip_interface in
+      inventory/group_vars/all.yml to the rack VLAN interface (e.g. eno1).
+
+# kube-vip reaches the API server by the name "kubernetes". Its upstream
+# manifest resolves that with a hostAliases entry — and kubelet ignores
+# hostAliases on hostNetwork pods, which every kube-vip is. The name then never
+# resolves, the leader election never completes, and the VIP never comes up,
+# leaving admin.conf pointing at an endpoint that refuses every connection.
+# Mapping it on the node is what actually works: kubelet seeds the container's
+# hosts file from the node's. Setting KUBERNETES_SERVICE_HOST in the pod does
+# not help — tested; kube-vip still dials the name.
+# https://github.com/kube-vip/kube-vip/issues/692
+- name: Resolve "kubernetes" to the local API server for kube-vip
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "127.0.0.1 kubernetes"
+    regexp: '^127\.0\.0\.1\s+kubernetes$'
+    state: present
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Cycle the kube-vip static pod
+
+- name: Ensure the static pod manifest directory exists
+  ansible.builtin.file:
+    path: /etc/kubernetes/manifests
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Place the kube-vip static pod manifest
+  ansible.builtin.template:
+    src: kube-vip.yaml.j2
+    dest: /etc/kubernetes/manifests/kube-vip.yaml
+    owner: root
+    group: root
+    mode: "0644"

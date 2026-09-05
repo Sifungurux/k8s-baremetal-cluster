@@ -1,0 +1,16 @@
+---
+# The container's hosts file is seeded when the pod is created, so a node that
+# gained the entry after the fact needs the pod recreated to see it. The pod
+# spec itself is unchanged, so kubelet will not act on a re-render — the
+# manifest has to actually leave the directory and come back.
+# ponytail: a sleep is crude, but kubelet's static pod poll is the thing being
+# waited on; a readiness loop here would be more code for the same 20 seconds.
+- name: Cycle the kube-vip static pod
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      test -f /etc/kubernetes/manifests/kube-vip.yaml || exit 0
+      mv /etc/kubernetes/manifests/kube-vip.yaml /root/.kube-vip.yaml.cycle
+      sleep 20
+      mv /root/.kube-vip.yaml.cycle /etc/kubernetes/manifests/kube-vip.yaml
+  changed_when: true

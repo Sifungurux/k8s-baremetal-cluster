@@ -1,0 +1,35 @@
+# Managed by the kube_vip role — edits here are overwritten.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kube-vip
+  namespace: kube-system
+spec:
+  hostNetwork: true
+  containers:
+    - name: kube-vip
+      image: "ghcr.io/kube-vip/kube-vip:{{ kube_vip_version }}"
+      imagePullPolicy: IfNotPresent
+      args: ["manager"]
+      env:
+        - { name: vip_arp, value: "true" }
+        - { name: port, value: "6443" }
+        - { name: vip_interface, value: "{{ kube_vip_iface }}" }
+        - { name: vip_address, value: "{{ control_plane_vip }}" }
+        - { name: address, value: "{{ control_plane_vip }}" }
+        - { name: cp_enable, value: "true" }
+        - { name: cp_namespace, value: "kube-system" }
+        - { name: vip_leaderelection, value: "true" }
+      securityContext:
+        capabilities:
+          add: ["NET_ADMIN", "NET_RAW"]
+      volumeMounts:
+        - name: kubeconfig
+          mountPath: /etc/kubernetes/admin.conf
+  volumes:
+    - name: kubeconfig
+      hostPath:
+        # Always /etc/kubernetes/admin.conf *inside* the container — kube-vip
+        # looks there unconditionally. What varies is which host file backs it.
+        path: "{{ kube_vip_kubeconfig }}"
+        type: File
