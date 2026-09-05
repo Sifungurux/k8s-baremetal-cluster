@@ -45,7 +45,28 @@ Installer-specific values, all in `all.yml`:
 
 | Variable | Notes |
 |---|---|
-| `installer_disk` | The install target, e.g. `/dev/nvme0n1`. **This disk is wiped.** On a node with a single internal disk, `"auto"` is safer: it takes the first disk that is not the medium you booted from, so a USB stick that enumerates ahead of the internal disk cannot steal the name. |
+| `installer_disk` | The install target, e.g. `/dev/nvme0n1`. **This disk is wiped.** Resolved per node — see below. On a node with a single internal disk, `"auto"` is safer: it takes the first disk that is not the medium you booted from, so a USB stick that enumerates ahead of the internal disk cannot steal the name. |
+
+### A rack with different disks
+
+`installer_disk` is resolved per node, the same way the hostname is: whichever
+menu entry you pick carries that node's device on its kernel command line. One
+image still installs the whole rack.
+
+Resolution follows Ansible's own precedence — a host var in `hosts.yml`, then
+`group_vars/<group>.yml`, then `group_vars/all.yml`. This rack uses the group
+level: `all.yml` carries `/dev/nvme0n1` for the control planes and
+`group_vars/workers.yml` overrides it with `/dev/sda`.
+
+```
+Install Kubernetes node: cp1 (control_plane)   -> partman-auto/disk=/dev/nvme0n1
+Install Kubernetes node: w1  (workers)         -> partman-auto/disk=/dev/sda
+```
+
+`"auto"` cannot be mixed with explicit devices: automatic detection runs as a
+preseed `early_command`, which would overwrite whatever the menu entry set. The
+builder refuses a mixed inventory rather than wiping the wrong disk on some
+node. Use one or the other.
 | `installer_root_size_gb` | Size of the root LV, in decimal GB (60 → 60 GB → 55.9 GiB). Everything past it stays free in the volume group. |
 | `installer_timezone`, `installer_keymap`, `installer_domain` | Locale and DNS domain. `installer_domain` may be empty. |
 
