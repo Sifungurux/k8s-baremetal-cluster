@@ -3,6 +3,23 @@
 # workers is the next task; this playbook grows a play at a time so that every
 # stage is runnable on its own.
 
+# cp1 mints join credentials, and both commands are non-idempotent, so it has
+# to know whether anything still needs to join before it runs them. With
+# serial: 1 on the control-plane play it cannot learn that from the other nodes
+# in time — hence a survey pass first.
+- name: Survey which nodes are already cluster members
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Look for an existing kubelet identity
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_identity
+
+    - name: Record membership
+      ansible.builtin.set_fact:
+        node_joined: "{{ kubelet_identity.stat.exists }}"
+
 - name: Place the control-plane VIP
   hosts: control_plane
   gather_facts: true
@@ -18,10 +35,33 @@
   roles:
     - control_plane
 
-# Second pass: admin.conf now exists and its RBAC is reconciled, so kube-vip
-# moves off the bootstrap super-admin credential.
-- name: Re-point kube-vip at the ordinary admin kubeconfig
-  hosts: control_plane
+- name: Join the workers
+  hosts: workers
   gather_facts: true
   roles:
-    - kube_vip
+    - worker
+
+# Longhorn wants three schedulable nodes and this rack has five, so the control
+# planes carry workloads. This must happen before Longhorn, or replica
+# placement has too few candidates.
+- name: Untaint the control planes so they can carry workloads
+  hosts: control_plane
+  gather_facts: false
+  tasks:
+    - name: Remove the control-plane NoSchedule taint
+      ansible.builtin.command:
+        cmd: >-
+          kubectl --kubeconfig /etc/kubernetes/admin.conf taint nodes
+          --all node-role.kubernetes.io/control-plane-
+      register: untaint
+      # Removing a taint that is already gone exits non-zero with "not found",
+      # which is exactly what a second run should do.
+      changed_when: "'untainted' in untaint.stdout"
+      failed_when:
+        - untaint.rc != 0
+        - "'not found' not in untaint.stderr"
+      # One call clears the taint from every node, so it runs on the first
+      # control plane only — the same idiom the control_plane role uses.
+      when:
+        - inventory_hostname == groups['control_plane'][0]
+        - untaint_control_planes | bool

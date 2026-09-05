@@ -1,0 +1,14 @@
+---
+- name: Check whether this node has already joined
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf
+
+# kubelet takes its node address from /etc/default/kubelet, which os_prep wrote,
+# so the join command needs no address of its own.
+- name: Join the cluster as a worker
+  ansible.builtin.command:
+    cmd: "{{ hostvars[groups['control_plane'][0]]['worker_join_command'] }}"
+  when: not kubelet_conf.stat.exists
+  register: worker_joined
+  changed_when: worker_joined.rc == 0
