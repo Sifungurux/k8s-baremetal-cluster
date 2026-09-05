@@ -3,18 +3,29 @@
 # --control-plane-endpoint. The manifest is dropped into the static pod
 # directory so the kubelet starts it the moment it comes up during init.
 
-# A rack with one NIC does not need the operator to name it. kube_vip_interface
-# stays available as an override for hosts where the default route is not the
-# rack VLAN.
+# The VIP has to be advertised on the rack VLAN, which is the interface holding
+# node_ip — not the one owning the default route. Those differ on any node with
+# a separate management NIC, and picking the default route there puts the VIP on
+# a network no other node can reach: kube-vip wins the lease and broadcasts into
+# the void, so the endpoint never answers and nothing says why.
+# kube_vip_interface remains an explicit override.
 # Kubernetes 1.29 restricted admin.conf's permissions during bootstrap, which
 # used to force a swap to super-admin.conf for the init window
 # (https://github.com/kube-vip/kube-vip/issues/684). Verified not to be needed
 # on the pinned k8s 1.35 / kube-vip v1.2.3: kube-vip took the lease with plain
 # admin.conf from the first moment of init. Revisit if you move either pin.
-- name: Resolve the interface the VIP is advertised on
+- name: Start from the operator's override, if any
   ansible.builtin.set_fact:
     kube_vip_kubeconfig: /etc/kubernetes/admin.conf
-    kube_vip_iface: "{{ kube_vip_interface | default('', true) or ansible_default_ipv4.interface }}"
+    kube_vip_iface: "{{ kube_vip_interface | default('', true) }}"
+
+- name: Otherwise use the interface that holds the rack address
+  ansible.builtin.set_fact:
+    kube_vip_iface: "{{ item }}"
+  loop: "{{ ansible_interfaces | difference(['lo']) | sort }}"
+  when:
+    - not kube_vip_iface
+    - hostvars[inventory_hostname]['ansible_' + (item | replace('-', '_'))].ipv4.address | default('') == node_ip
 
 - name: Fail early if no interface could be determined
   ansible.builtin.assert:

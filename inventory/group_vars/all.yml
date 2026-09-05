@@ -28,7 +28,11 @@ longhorn_version: "1.12.1"
 # the default route. On a single-NIC node those are the same; on a node with a
 # management NIC they are not, and kubeadm's default would pick the wrong one —
 # silently, and identically on every node.
-node_ip: "{{ ansible_all_ipv4_addresses | ansible.utils.ipaddr(rack_subnet) | first }}"
+# The control-plane VIP is also an address on rack_subnet, and it lands on
+# whichever node currently holds it — so it has to be excluded, or that node
+# resolves its own identity to a floating address that will move away.
+node_ip: "{{ (ansible_all_ipv4_addresses | ansible.utils.ipaddr(rack_subnet)
+              | difference([control_plane_vip])) | first }}"
 
 # Network — all four must not overlap
 control_plane_vip: "192.168.150.21"    # free IP above the .1-.20 node range
