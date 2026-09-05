@@ -55,8 +55,15 @@ grep -q '^set timeout=-1$' dist/k8s-menu.cfg || fail "boot menu has a timeout"
 # 3. preseed is fully rendered
 ! grep -q '@[A-Z_]*@' dist/preseed.cfg || fail "unsubstituted placeholder in preseed"
 grep -q 'partman-auto-lvm/new_vg_name string rackvg' dist/preseed.cfg || fail "VG name not substituted"
-grep -q 'partman-auto/disk string /dev/nvme0n1' dist/preseed.cfg || fail "disk not substituted"
-grep -q 'grub-installer/bootdev string /dev/nvme0n1' dist/preseed.cfg || fail "bootdev not substituted"
+# the disk travels on each menu entry, so the preseed must not name one — a
+# value in the file would override whatever the entry set
+! grep -qE '^d-i (partman-auto/disk|grub-installer/bootdev)' dist/preseed.cfg \
+    || fail "preseed names a disk; it would override the per-node menu entries"
+# the title and the kernel line are separate lines of the entry
+entry_disk() { grep -A2 "node: $1 " dist/k8s-menu.cfg | grep -oE 'partman-auto/disk=[^ ]*' | head -1; }
+for h in cp1 cp2; do
+    [ "$(entry_disk $h)" = "partman-auto/disk=/dev/nvme0n1" ] || fail "$h did not get the all.yml disk"
+done
 grep -q 'passwd/username string rackadm' dist/preseed.cfg || fail "admin user not taken from inventory"
 grep -q "$(cut -d' ' -f2 "$WORK/key.pub")" dist/preseed.cfg || fail "SSH key not embedded"
 
@@ -82,7 +89,28 @@ if VARS=$WORK/all.yml HOSTS=$WORK/hosts.yml installer/build-iso.sh --dry-run --k
     fail "built an image with no SSH key"
 fi
 
-# 6b. installer_disk: auto defers the choice to install time, so one image can
+# 6a. a group may override the disk: a rack is not uniform, and the wrong
+#     device here wipes the wrong drive
+mkdir -p "$WORK/group_vars"
+cp "$WORK/all.yml" "$WORK/group_vars/all.yml"
+cat > "$WORK/group_vars/workers.yml" <<'YAML'
+installer_disk: "/dev/sda"
+YAML
+VARS=$WORK/group_vars/all.yml HOSTS=$WORK/hosts.yml installer/build-iso.sh --dry-run --key "$WORK/key.pub" >/dev/null
+[ "$(entry_disk w1)"  = "partman-auto/disk=/dev/sda" ]       || fail "worker did not take the group override"
+[ "$(entry_disk cp1)" = "partman-auto/disk=/dev/nvme0n1" ]   || fail "control plane lost the all.yml disk"
+
+# 6b. mixing auto with explicit devices must be refused, not silently resolved:
+#     the auto early_command would clobber the explicit entries
+cat > "$WORK/group_vars/workers.yml" <<'YAML'
+installer_disk: "auto"
+YAML
+if VARS=$WORK/group_vars/all.yml HOSTS=$WORK/hosts.yml installer/build-iso.sh --dry-run --key "$WORK/key.pub" >/dev/null 2>&1; then
+    fail "built an image mixing auto and explicit installer_disk"
+fi
+rm -rf "$WORK/group_vars"
+
+# 6c. installer_disk: auto defers the choice to install time, so one image can
 #     target the first internal disk without naming it
 sed -i.bak 's|/dev/nvme0n1|auto|' "$WORK/all.yml"
 VARS=$WORK/all.yml HOSTS=$WORK/hosts.yml installer/build-iso.sh --dry-run --key "$WORK/key.pub" >/dev/null

@@ -7,3 +7,9 @@
 # takes installer_root_size_gb (60 GB = 55.9 GiB). On a 1 TB disk that leaves
 # roughly 873 GiB free, so 800G lands with ~73 GiB of headroom.
 longhorn_lv_size: "800G"
+
+# Workers boot off SATA; the control planes are NVMe, which is what all.yml
+# carries. The installer resolves this per node and puts it on that node's boot
+# menu entry, so one image still installs the whole rack.
+# THIS DISK IS WIPED on the node you select.
+installer_disk: "/dev/sda"

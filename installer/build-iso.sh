@@ -98,10 +98,49 @@ esac
 # partman reads decimal GB here; the recipe wants MB, so both come from one value.
 mkdir -p dist
 
-# installer_disk may name a device, or "auto" to take the first disk that is not
-# the installer medium. "auto" is the safer choice on a node with a single
-# internal disk, because a USB stick can enumerate ahead of it and claim /dev/sda.
-if [ "$DISK" = auto ]; then
+# installer_disk may differ per node group — a rack is rarely uniform, and the
+# device that gets wiped is not a value to guess at. Resolution mirrors
+# Ansible's own precedence: a host var in hosts.yml, then group_vars/<group>,
+# then group_vars/all.
+GROUP_VARS_DIR=$(dirname "$VARS")
+resolve_disk() {
+    local host=$1 group=$2 v
+    v=$(yq -r ".all.children.$group.hosts.$host.installer_disk // \"\"" "$HOSTS")
+    if [ -z "$v" ] || [ "$v" = "null" ]; then
+        if [ -f "$GROUP_VARS_DIR/$group.yml" ]; then
+            v=$(yq -r '.installer_disk // ""' "$GROUP_VARS_DIR/$group.yml")
+        fi
+    fi
+    if [ -z "$v" ] || [ "$v" = "null" ]; then v=$DISK; fi
+    echo "$v"
+}
+
+
+# Every generated menu entry carries its own disk, so the preseed must not also
+# name one: a value in the preseed file would override what the entry set.
+# The only case that still needs a preseed stanza is "auto", where the choice is
+# deferred to install time. The two cannot be mixed — an unconditional
+# early_command would clobber the explicit entries — so a mixed inventory is
+# refused rather than silently wiping the wrong disk on some node.
+auto_hosts=""; explicit_hosts=""
+for group in $(get '.all.children | keys | .[]' "$HOSTS"); do
+    for host in $(get ".all.children.$group.hosts | keys | .[]" "$HOSTS"); do
+        if [ "$(resolve_disk "$host" "$group")" = auto ]; then
+            auto_hosts="$auto_hosts $host"
+        else
+            explicit_hosts="$explicit_hosts $host"
+        fi
+    done
+done
+if [ -n "$auto_hosts" ] && [ -n "$explicit_hosts" ]; then
+    die "installer_disk mixes \"auto\" and explicit devices:
+  auto:    $auto_hosts
+  device: $explicit_hosts
+Use one or the other — automatic detection cannot be limited to some nodes."
+fi
+
+: > dist/disk-select.cfg
+if [ -n "$auto_hosts" ]; then
     cat > dist/disk-select.cfg <<'AUTO'
 # Take the first disk that is not the medium we booted from.
 d-i partman/early_command string \
@@ -111,9 +150,6 @@ d-i partman/early_command string \
     debconf-set partman-auto/disk "$DISK"; \
     debconf-set grub-installer/bootdev "$DISK"
 AUTO
-else
-    printf 'd-i partman-auto/disk string %s\nd-i grub-installer/bootdev string %s\n' "$DISK" "$DISK" \
-        > dist/disk-select.cfg
 fi
 
 ROOT_SIZE="$ROOT_GB GB"
@@ -151,6 +187,10 @@ emit_menu() {
             local title="Install Kubernetes node: $host ($group)"
             local params="auto=true priority=critical preseed/file=/cdrom/preseed.cfg"
             params="$params hostname=$host netcfg/hostname=$host netcfg/get_hostname=$host"
+            local hostdisk; hostdisk=$(resolve_disk "$host" "$group")
+            if [ "$hostdisk" != auto ]; then
+                params="$params partman-auto/disk=$hostdisk grub-installer/bootdev=$hostdisk"
+            fi
             [ -n "$first" ] || first=$title
             cat >> "$grub" <<ENTRY
 menuentry '$title' {
