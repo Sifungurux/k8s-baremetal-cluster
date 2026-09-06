@@ -1,0 +1,56 @@
+---
+# DESTRUCTIVE. Tears the cluster down to prepped-but-unbootstrapped nodes:
+# kubeadm reset, CNI state, and the kube-vip manifest. It deliberately does not
+# touch the Longhorn volume — that is where the data is, and a teardown that
+# silently destroys data is a footgun, not a convenience. Wipe it by hand if
+# that is really what you want.
+- name: Confirm before destroying the cluster
+  hosts: localhost
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Require an explicit opt-in
+      ansible.builtin.assert:
+        that:
+          - confirm_reset | default('') == 'yes'
+        fail_msg: >-
+          Refusing to reset. This destroys the cluster on every node in the
+          inventory. Re-run with -e confirm_reset=yes if that is what you want.
+
+- name: Reset every node
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Run kubeadm reset
+      ansible.builtin.command:
+        cmd: kubeadm reset --force
+      register: kubeadm_reset
+      changed_when: kubeadm_reset.rc == 0
+      failed_when: false
+
+    - name: Remove the kube-vip static pod manifest
+      ansible.builtin.file:
+        path: /etc/kubernetes/manifests/kube-vip.yaml
+        state: absent
+
+    # kubeadm reset leaves CNI state behind, and a stale one breaks the next
+    # bootstrap in ways that look like a CNI bug rather than leftovers.
+    - name: Remove CNI configuration and state
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/cni/net.d
+        - /var/lib/cni
+        - /var/run/cilium
+
+    - name: Drop the operator's kubeconfig
+      ansible.builtin.file:
+        path: /root/.kube/config
+        state: absent
+
+    - name: Report what was left alone
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} reset. {{ longhorn_mount }} was NOT touched —
+          remove it by hand if the data should go too.
