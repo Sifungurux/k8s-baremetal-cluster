@@ -1,0 +1,14 @@
+---
+# Ingress, not Gateway API — ingress-nginx dropped its Gateway API work, and
+# that role belongs to Envoy Gateway here. This exists so repos still shipping
+# Ingress resources (k8s-sigstore) keep working unchanged.
+controller:
+  replicaCount: 2
+  service:
+    # MetalLB hands this an address out of metallb_pool. Without MetalLB it
+    # would sit Pending forever.
+    type: LoadBalancer
+  ingressClassResource:
+    # The default only applies to Ingress resources; it says nothing about
+    # Gateway API, which routes by gatewayClassName instead.
+    default: true

@@ -1,0 +1,4 @@
+---
+# The chart's defaults are right for a rack: a speaker DaemonSet on every node
+# and a single controller. Nothing to override — the file exists so the pool
+# and the release stay described in the same place.

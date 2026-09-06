@@ -374,37 +374,61 @@ ansible control_plane -a "cat /etc/default/kubelet"        # expect the reservat
 
 ---
 
-## Part 6 — Stop here
+## Part 6 — Bring up the platform
 
-This is as far as the repo goes today.
+After `make bootstrap` every node is `NotReady` and there is no pod networking.
+That is the expected state, not a fault: the CNI has not run yet.
 
 ```bash
-make bootstrap    # FAILS: playbooks/bootstrap.yml does not exist
-make platform     # FAILS: no such Makefile target
-make kubeconfig   # FAILS: no such Makefile target
-make verify       # FAILS: no such Makefile target
-make reset        # FAILS: no such Makefile target
+make platform     # cilium, metallb, ingress, gateway, longhorn — in that order
 ```
 
-`make help` lists all five. The `bootstrap` target exists in the Makefile and
-invokes a playbook that was never written; the other four have no target at all.
+Or one at a time, which is what `platform` does anyway:
 
-Still to be built, in order (Tasks 7–15 of the implementation plan):
-
-| Missing | What it will do |
+| Target | What it gives you |
 |---|---|
-| `roles/kube_vip` | kube-vip static pod manifest — the VIP must answer *before* `kubeadm init` uses it as `--control-plane-endpoint`. |
-| `roles/control_plane` | `kubeadm init` on `cp1`, then join `cp2`/`cp3` one at a time (`serial: 1`, or concurrent etcd joins can lose quorum). |
-| `roles/worker` | Join `w1`/`w2`, then untaint the control planes. |
-| `platform/` + Makefile targets | Cilium → MetalLB → ingress-nginx → Longhorn, as Helm releases. Order matters: untaint before Longhorn, MetalLB before ingress. |
-| `scripts/verify.sh` | Four-check smoke test, including a PVC that must survive rescheduling onto another node. |
-| `playbooks/reset.yml` | Guarded teardown (`-e confirm_reset=yes`). |
-| `docs/runbook-day2.md` | etcd snapshots, cert renewal, node loss, upgrades. |
+| `make cilium` | CNI. Nodes go `Ready`. Everything else waits on this. |
+| `make metallb` | `type: LoadBalancer` services get an address from `metallb_pool`. Must precede anything asking for one, or those services sit `Pending` forever. |
+| `make ingress` | ingress-nginx, as the default IngressClass — for repos still shipping `Ingress` resources. |
+| `make gateway` | Envoy Gateway, plus the `gateway.networking.k8s.io` CRDs its chart ships, plus a `GatewayClass` named `envoy`. |
+| `make longhorn` | Default StorageClass, three replicas, stored on the dedicated LV. |
 
-The full step-by-step for these lives in
-[`docs/superpowers/plans/2026-08-31-baremetal-kubeadm-cluster.md`](superpowers/plans/2026-08-31-baremetal-kubeadm-cluster.md).
+### Ingress and Gateway API are both provided, deliberately
 
----
+ingress-nginx serves `Ingress`; it dropped its own Gateway API work, so that
+role belongs to Envoy Gateway. Nothing needs to choose between them — an
+application uses whichever API it already speaks.
+
+A chart moving onto Gateway API here needs two values:
+
+```yaml
+gateway:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  listenerPort: 80
+```
+
+The port matters more than it looks. A `Gateway` listener's port must match the
+data plane's actual port, not the externally exposed one. Under Traefik that was
+`8000`, and getting it wrong silently programmed no route at all — every request
+fell through to the controller's own 404. Envoy Gateway's data plane listens on
+the port the `Gateway` declares, so `80` is right here.
+
+A chart may create its own `GatewayClass` rather than use `envoy`;
+`supply-chain-monitor` does exactly that, on purpose. `GatewayClass` is
+cluster-scoped, so give it a distinct name.
+
+### Verify
+
+```bash
+kubectl get nodes                    # all Ready
+kubectl get svc -A | grep LoadBalancer   # external IPs from metallb_pool
+kubectl get storageclass             # longhorn (default)
+kubectl get gatewayclass             # envoy, Accepted=True
+kubectl -n longhorn-system get nodes.longhorn.io   # one per schedulable node
+```
+
+Fewer than three Longhorn nodes means three-replica volumes will not schedule —
+check that the control planes were untainted, or that three workers exist.
 
 ## Part 7 — Running the tests
 

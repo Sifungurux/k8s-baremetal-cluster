@@ -6,6 +6,7 @@ VARS := inventory/group_vars/all.yml
 CILIUM_VERSION        := $(shell yq '.cilium_version' $(VARS))
 METALLB_VERSION       := $(shell yq '.metallb_version' $(VARS))
 INGRESS_NGINX_VERSION := $(shell yq '.ingress_nginx_version' $(VARS))
+ENVOY_GATEWAY_VERSION := $(shell yq '.envoy_gateway_version' $(VARS))
 LONGHORN_VERSION      := $(shell yq '.longhorn_version' $(VARS))
 METALLB_POOL          := $(shell yq '.metallb_pool' $(VARS))
 
@@ -21,10 +22,13 @@ help:
 	@echo "    make prep        OS + storage prep on all nodes"
 	@echo "    make bootstrap   kubeadm init and the control-plane VIP"
 	@echo "    make cilium      CNI — nodes stay NotReady until this runs"
-	@echo "    make platform    MetalLB, ingress-nginx, Longhorn"
-	@echo "    make kubeconfig  Fetch admin.conf as context 'rack'"
-	@echo "    make verify      Cluster smoke test"
-	@echo "    make reset       DESTRUCTIVE: kubeadm reset all nodes"
+	@echo "    make metallb     LoadBalancer IPs from metallb_pool"
+	@echo "    make ingress     ingress-nginx (Ingress resources)"
+	@echo "    make gateway     Envoy Gateway (Gateway API) + GatewayClass envoy"
+	@echo "    make longhorn    Default StorageClass, 3 replicas"
+	@echo "    make platform    All of the above, in order"
+	@echo ""
+	@echo "  Not built yet: kubeconfig, verify, reset"
 	@echo ""
 
 # Override with: make iso KEY=~/.ssh/other.pub
@@ -69,3 +73,56 @@ cilium:
 		-f platform/cilium/values.yaml \
 		--wait --timeout 10m
 	kubectl wait --for=condition=Ready nodes --all --timeout=300s
+
+# MetalLB has to land before anything asking for a LoadBalancer, or those
+# services sit Pending forever waiting for an external IP that nothing hands out.
+.PHONY: metallb
+metallb:
+	helm repo add metallb https://metallb.github.io/metallb
+	helm repo update metallb
+	helm upgrade --install metallb metallb/metallb \
+		--version $(METALLB_VERSION) \
+		--namespace metallb-system --create-namespace \
+		-f platform/metallb/values.yaml \
+		--wait --timeout 5m
+	sed 's|__METALLB_POOL__|$(METALLB_POOL)|' platform/metallb/pool.yaml.tpl | kubectl apply -f -
+
+# Needs three schedulable nodes for its three-replica default, and the
+# /var/lib/longhorn mount that storage_prep created on each of them.
+.PHONY: longhorn
+longhorn:
+	helm repo add longhorn https://charts.longhorn.io
+	helm repo update longhorn
+	helm upgrade --install longhorn longhorn/longhorn \
+		--version $(LONGHORN_VERSION) \
+		--namespace longhorn-system --create-namespace \
+		-f platform/longhorn/values.yaml \
+		--wait --timeout 15m
+
+# Ingress resources only. ingress-nginx dropped its Gateway API support, so
+# Gateway API is Envoy Gateway's job below.
+.PHONY: ingress
+ingress:
+	helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+	helm repo update ingress-nginx
+	helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+		--version $(INGRESS_NGINX_VERSION) \
+		--namespace ingress-nginx --create-namespace \
+		-f platform/ingress-nginx/values.yaml \
+		--wait --timeout 5m
+
+# Gateway API. The chart ships the gateway.networking.k8s.io CRDs as well as
+# the controller, but creates no GatewayClass, so the cluster provides one.
+.PHONY: gateway
+gateway:
+	helm upgrade --install envoy-gateway oci://docker.io/envoyproxy/gateway-helm \
+		--version $(ENVOY_GATEWAY_VERSION) \
+		--namespace envoy-gateway-system --create-namespace \
+		-f platform/envoy-gateway/values.yaml \
+		--wait --timeout 10m
+	kubectl apply -f platform/envoy-gateway/gatewayclass.yaml
+
+# Order is not cosmetic: MetalLB must precede anything wanting a LoadBalancer,
+# and Longhorn wants the cluster already settled.
+.PHONY: platform
+platform: cilium metallb ingress gateway longhorn

@@ -1,0 +1,14 @@
+---
+defaultSettings:
+  # The dedicated LV that storage_prep carves and mounts, not the root
+  # filesystem — a runaway volume must not be able to fill the OS disk.
+  defaultDataPath: /var/lib/longhorn
+  defaultReplicaCount: 3
+  # Replicas must not share a node, or losing one node takes several copies of
+  # the same volume with it. This needs three schedulable nodes to satisfy,
+  # which is why the control planes are untainted (or three workers exist).
+  replicaSoftAntiAffinity: false
+
+persistence:
+  defaultClass: true
+  defaultClassReplicaCount: 3
