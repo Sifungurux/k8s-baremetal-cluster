@@ -179,28 +179,26 @@
   tags:
     - hostonly
 
-- name: Reserve resources for the system and kubelet on control planes
-  ansible.builtin.copy:
+# --node-ip is what stops kubelet registering the node under whichever address
+# the default route happens to own. The reservations remain control-plane only.
+- name: Configure kubelet's node address and control-plane reservations
+  ansible.builtin.template:
+    src: kubelet-defaults.j2
     dest: /etc/default/kubelet
-    content: |
-      KUBELET_EXTRA_ARGS=--system-reserved=cpu=500m,memory=1Gi --kube-reserved=cpu=500m,memory=1Gi --eviction-hard=memory.available<500Mi
     owner: root
     group: root
     mode: "0644"
-  when: inventory_hostname in groups['control_plane']
   register: kubelet_reservations
 
 # A handler here can't be gated with hostonly (skip-tags does not suppress a
 # notified handler), and kubelet itself is only installed on hostonly
 # runs — so the restart is a plain hostonly task instead of notify/handler.
-- name: Restart kubelet after a config change
+- name: Restart kubelet after a config change  # noqa: no-handler
   ansible.builtin.systemd:
     name: kubelet
     state: restarted
     daemon_reload: true
-  when:
-    - kubelet_reservations is changed
-    - inventory_hostname in groups['control_plane']
+  when: kubelet_reservations is changed
   tags:
     - hostonly
 

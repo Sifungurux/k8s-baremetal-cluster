@@ -1,5 +1,13 @@
 # Managed by the control_plane role — edits here are overwritten.
 apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  # Not the default-route address: on a node with a management NIC that is the
+  # wrong one, and identical across nodes.
+  advertiseAddress: "{{ node_ip }}"
+  bindPort: 6443
+---
+apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
 kubernetesVersion: "v{{ kubernetes_patch_version }}"
 controlPlaneEndpoint: "{{ control_plane_endpoint }}"

@@ -1,0 +1,7 @@
+# Managed by the os_prep role — edits here are overwritten.
+#
+# --node-ip pins the node to the address it holds on rack_subnet. Without it
+# kubelet registers under whichever address owns the default route, which on a
+# node with a separate management NIC is the wrong one — and is frequently the
+# same wrong one on every node.
+KUBELET_EXTRA_ARGS=--node-ip={{ node_ip }}{% if inventory_hostname in groups['control_plane'] %} --system-reserved=cpu=500m,memory=1Gi --kube-reserved=cpu=500m,memory=1Gi --eviction-hard=memory.available<500Mi{% endif %}

@@ -24,6 +24,16 @@ metallb_version: "0.16.1"
 ingress_nginx_version: "4.15.1"
 longhorn_version: "1.12.1"
 
+# Every node binds to the address it holds on rack_subnet, not to whatever owns
+# the default route. On a single-NIC node those are the same; on a node with a
+# management NIC they are not, and kubeadm's default would pick the wrong one —
+# silently, and identically on every node.
+# The control-plane VIP is also an address on rack_subnet, and it lands on
+# whichever node currently holds it — so it has to be excluded, or that node
+# resolves its own identity to a floating address that will move away.
+node_ip: "{{ (ansible_all_ipv4_addresses | ansible.utils.ipaddr(rack_subnet)
+              | difference([control_plane_vip])) | first }}"
+
 # Network — all four must not overlap
 control_plane_vip: "192.168.150.21"    # free IP above the .1-.20 node range
 control_plane_endpoint: "{{ control_plane_vip }}:6443"
@@ -47,8 +57,8 @@ longhorn_mount: "/var/lib/longhorn"
 untaint_control_planes: true
 
 # Installer image — installer/build-iso.sh, docs/installer.md
-installer_disk: "/dev/nvme0n1"             # install target, e.g. /dev/nvme0n1 — THIS DISK IS WIPED
+installer_disk: "auto"            # install target, e.g. /dev/nvme0n1 — THIS DISK IS WIPED
 installer_root_size_gb: 60             # root LV; the rest of the VG stays free for longhorn_lv_size
 installer_timezone: "Europe/Copenhagen"
-installer_keymap: "us"
+installer_keymap: "dk"
 installer_domain: ""                   # DNS domain for the nodes; empty is fine

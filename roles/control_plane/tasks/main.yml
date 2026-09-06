@@ -52,3 +52,69 @@
     group: root
     mode: "0600"
   when: inventory_hostname == groups['control_plane'][0]
+
+# Both commands mint fresh credentials every time they run — a new bootstrap
+# token and a freshly uploaded certificate key. Running them unconditionally
+# would make `make bootstrap` report changes forever on a finished cluster, so
+# they only run while some node has yet to join.
+- name: Decide whether any join credentials are still needed
+  ansible.builtin.set_fact:
+    join_needed: >-
+      {{ groups['all']
+         | map('extract', hostvars, 'node_joined')
+         | select('defined') | select('equalto', false) | list | length > 0 }}
+  when: inventory_hostname == groups['control_plane'][0]
+
+- name: Generate the control-plane join command
+  ansible.builtin.shell:
+    cmd: |
+      # -e matters as much as pipefail here: without it a failed key lookup
+      # still reaches the echo and emits a join command with an empty
+      # --certificate-key, which fails much later and much less clearly.
+      set -euo pipefail
+      token=$(kubeadm token create --print-join-command)
+      # --config is not optional: without it this phase re-derives the API
+      # address from the default route rather than from advertiseAddress, and
+      # then fails TLS against a certificate that never named that address.
+      key=$(kubeadm init phase upload-certs --upload-certs \
+              --config /etc/kubernetes/kubeadm-config.yaml \
+            | grep -oE '^[0-9a-f]{64}$' | tail -1)
+      test -n "$key"
+      echo "$token --control-plane --certificate-key $key"
+  args:
+    executable: /bin/bash
+  when:
+    - inventory_hostname == groups['control_plane'][0]
+    - join_needed | bool
+  register: cp_join
+  changed_when: false
+
+- name: Generate the worker join command
+  ansible.builtin.command:
+    cmd: kubeadm token create --print-join-command
+  when:
+    - inventory_hostname == groups['control_plane'][0]
+    - join_needed | bool
+  register: worker_join
+  changed_when: false
+
+- name: Publish the join commands
+  ansible.builtin.set_fact:
+    cp_join_command: "{{ cp_join.stdout | trim }}"
+    worker_join_command: "{{ worker_join.stdout | trim }}"
+  when:
+    - inventory_hostname == groups['control_plane'][0]
+    - join_needed | bool
+
+# serial: 1 on this play is what keeps etcd safe: two members added at once can
+# lose quorum on a three-node cluster.
+- name: Join the remaining control planes
+  ansible.builtin.command:
+    cmd: >-
+      {{ hostvars[groups['control_plane'][0]]['cp_join_command'] }}
+      --apiserver-advertise-address {{ node_ip }}
+  when:
+    - inventory_hostname != groups['control_plane'][0]
+    - not admin_conf.stat.exists
+  register: cp_joined
+  changed_when: cp_joined.rc == 0

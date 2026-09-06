@@ -140,6 +140,20 @@
   tags:
     - hostcheck
 
+- name: Node has an address on the rack subnet
+  ansible.builtin.assert:
+    that:
+      - ansible_all_ipv4_addresses | ansible.utils.ipaddr(rack_subnet)
+        | difference([control_plane_vip]) | length == 1
+    fail_msg: >-
+      {{ inventory_hostname }} must hold exactly one address on rack_subnet
+      ({{ rack_subnet }}), excluding the control-plane VIP. It has
+      {{ ansible_all_ipv4_addresses | ansible.utils.ipaddr(rack_subnet)
+         | difference([control_plane_vip]) | length }}. node_ip cannot be
+      resolved unambiguously.
+  tags:
+    - hostcheck
+
 - name: Time is synchronised
   ansible.builtin.command:
     cmd: timedatectl show -p NTPSynchronized --value
