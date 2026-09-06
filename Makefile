@@ -135,15 +135,21 @@ platform: cilium metallb ingress gateway longhorn
 # overwriting whatever kubeconfig you already have.
 .PHONY: kubeconfig
 kubeconfig:
-	@mkdir -p $(HOME)/.kube
-	ansible -i $(INVENTORY) -m fetch -a "src=/etc/kubernetes/admin.conf dest=/tmp/rack-admin.conf flat=yes" \
-		$$(yq -r '.all.children.control_plane.hosts | keys | .[0]' $(HOSTS))
-	KUBECONFIG=/tmp/rack-admin.conf kubectl config rename-context kubernetes-admin@kubernetes rack
-	KUBECONFIG=/tmp/rack-admin.conf:$(HOME)/.kube/config kubectl config view --flatten > /tmp/rack-merged.conf
-	mv /tmp/rack-merged.conf $(HOME)/.kube/config
-	rm -f /tmp/rack-admin.conf
-	@chmod 600 $(HOME)/.kube/config
-	@echo "context 'rack' merged into ~/.kube/config — kubectl config use-context rack"
+	@set -eu; \
+	umask 077; \
+	mkdir -p $(HOME)/.kube; \
+	work=$$(mktemp -d); \
+	trap 'rm -rf "$$work"' EXIT INT TERM; \
+	cp=$$(yq -r '.all.children.control_plane.hosts | keys | .[0]' $(HOSTS)); \
+	ansible -i $(INVENTORY) -m fetch \
+		-a "src=/etc/kubernetes/admin.conf dest=$$work/admin.conf flat=yes" "$$cp" >/dev/null; \
+	KUBECONFIG="$$work/admin.conf" kubectl config rename-context \
+		kubernetes-admin@kubernetes rack >/dev/null; \
+	KUBECONFIG="$$work/admin.conf:$(HOME)/.kube/config" kubectl config view --flatten \
+		> "$$work/merged"; \
+	cat "$$work/merged" > $(HOME)/.kube/config; \
+	chmod 600 $(HOME)/.kube/config; \
+	echo "context 'rack' merged into ~/.kube/config — kubectl config use-context rack"
 
 .PHONY: verify
 verify:
