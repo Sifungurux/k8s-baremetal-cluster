@@ -21,6 +21,8 @@ help:
 	@echo "    make prep        OS + storage prep on all nodes"
 	@echo "    make bootstrap   kubeadm init and the control-plane VIP"
 	@echo "    make cilium      CNI — nodes stay NotReady until this runs"
+	@echo "    make metallb     LoadBalancer IPs from metallb_pool"
+	@echo "    make longhorn    Default StorageClass, 3 replicas"
 	@echo "    make platform    MetalLB, ingress-nginx, Longhorn"
 	@echo "    make kubeconfig  Fetch admin.conf as context 'rack'"
 	@echo "    make verify      Cluster smoke test"
@@ -69,3 +71,28 @@ cilium:
 		-f platform/cilium/values.yaml \
 		--wait --timeout 10m
 	kubectl wait --for=condition=Ready nodes --all --timeout=300s
+
+# MetalLB has to land before anything asking for a LoadBalancer, or those
+# services sit Pending forever waiting for an external IP that nothing hands out.
+.PHONY: metallb
+metallb:
+	helm repo add metallb https://metallb.github.io/metallb
+	helm repo update metallb
+	helm upgrade --install metallb metallb/metallb \
+		--version $(METALLB_VERSION) \
+		--namespace metallb-system --create-namespace \
+		-f platform/metallb/values.yaml \
+		--wait --timeout 5m
+	sed 's|__METALLB_POOL__|$(METALLB_POOL)|' platform/metallb/pool.yaml.tpl | kubectl apply -f -
+
+# Needs three schedulable nodes for its three-replica default, and the
+# /var/lib/longhorn mount that storage_prep created on each of them.
+.PHONY: longhorn
+longhorn:
+	helm repo add longhorn https://charts.longhorn.io
+	helm repo update longhorn
+	helm upgrade --install longhorn longhorn/longhorn \
+		--version $(LONGHORN_VERSION) \
+		--namespace longhorn-system --create-namespace \
+		-f platform/longhorn/values.yaml \
+		--wait --timeout 15m
