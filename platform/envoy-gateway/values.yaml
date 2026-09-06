@@ -1,0 +1,4 @@
+---
+# Chart defaults are sound for a rack. The controller runs once; the data plane
+# is a Deployment per Gateway, created on demand and given a LoadBalancer
+# address from metallb_pool.

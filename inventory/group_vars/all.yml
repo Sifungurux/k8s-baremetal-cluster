@@ -22,6 +22,8 @@ kube_vip_interface: ""                # rack VLAN interface, e.g. eno1. Empty me
 cilium_version: "1.20.1"
 metallb_version: "0.16.1"
 ingress_nginx_version: "4.15.1"
+envoy_gateway_version: "v1.9.1"       # Gateway API implementation; its chart
+                                      # also ships the gateway.networking.k8s.io CRDs
 longhorn_version: "1.12.1"
 
 # Every node binds to the address it holds on rack_subnet, not to whatever owns

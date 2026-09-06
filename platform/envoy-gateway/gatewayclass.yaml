@@ -1,0 +1,22 @@
+---
+# The Envoy Gateway chart installs the controller and the Gateway API CRDs but
+# creates no GatewayClass, so the cluster provides a default one for apps that
+# do not own theirs.
+#
+# An app may still create its own — supply-chain-monitor does, deliberately, and
+# should keep a distinct name since GatewayClass is cluster-scoped. What its
+# chart needs to point here is:
+#
+#   gateway.controllerName: gateway.envoyproxy.io/gatewayclass-controller
+#   gateway.listenerPort:   80
+#
+# The port matters. A Gateway listener's port must match the data plane's real
+# port, not the externally exposed one; under Traefik that was 8000, and a
+# mismatch silently programmed no route at all. Envoy Gateway's data plane
+# listens on the port the Gateway declares, so 80 is correct here.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
