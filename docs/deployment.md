@@ -417,20 +417,47 @@ A chart may create its own `GatewayClass` rather than use `envoy`;
 `supply-chain-monitor` does exactly that, on purpose. `GatewayClass` is
 cluster-scoped, so give it a distinct name.
 
-### Verify
+## Part 7 — Verify, and hand off
 
 ```bash
-kubectl get nodes                    # all Ready
-kubectl get svc -A | grep LoadBalancer   # external IPs from metallb_pool
-kubectl get storageclass             # longhorn (default)
-kubectl get gatewayclass             # envoy, Accepted=True
-kubectl -n longhorn-system get nodes.longhorn.io   # one per schedulable node
+make kubeconfig   # merges admin.conf in as context 'rack'
+make verify       # the smoke test
 ```
 
-Fewer than three Longhorn nodes means three-replica volumes will not schedule —
-check that the control planes were untainted, or that three workers exist.
+`make kubeconfig` *merges* — it does not overwrite whatever kubeconfig you
+already have, and the new context is named `rack`.
 
-## Part 7 — Running the tests
+`make verify` runs seven checks and names what to fix for each failure. The node
+count comes from the inventory, not a constant, so adding a node needs no edit
+here. The last check is the one worth understanding:
+
+> A pod writes to a Longhorn volume on one node. The pod is deleted, and a
+> second pod is scheduled onto a **different** node and reads the file back.
+
+Everything else proves a component exists. That check proves replication
+actually works — a volume that merely exists tells you nothing about whether the
+data survives losing a node, which is the entire reason Longhorn is here.
+
+It also separates two very different causes of an unschedulable node: the
+control-plane taint is a config choice, while `memory-pressure`, `unreachable`
+and `not-ready` are health. Blaming the untaint for a starved node sends you to
+the wrong file.
+
+### Tearing it down
+
+```bash
+make reset CONFIRM=yes
+```
+
+Destroys the cluster on every node in the inventory and returns them to
+prepped-but-unbootstrapped. Without `CONFIRM=yes` it refuses, so a mistyped
+target cannot do it.
+
+It deliberately does **not** touch `/var/lib/longhorn`. That is where the data
+is, and a teardown that silently destroys data is a footgun rather than a
+convenience. Remove it by hand if that is really what you want.
+
+## Part 8 — Running the tests
 
 Molecule needs Docker running, plus the test tooling in your venv:
 

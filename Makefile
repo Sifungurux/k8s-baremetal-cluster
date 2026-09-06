@@ -1,6 +1,9 @@
 .DEFAULT_GOAL := help
 ANSIBLE := ansible-playbook
 VARS := inventory/group_vars/all.yml
+HOSTS := inventory/hosts.yml
+INVENTORY := inventory/hosts.yml
+CONFIRM ?= no
 
 # Single source of truth: every version is read from group_vars, never duplicated here.
 CILIUM_VERSION        := $(shell yq '.cilium_version' $(VARS))
@@ -27,8 +30,9 @@ help:
 	@echo "    make gateway     Envoy Gateway (Gateway API) + GatewayClass envoy"
 	@echo "    make longhorn    Default StorageClass, 3 replicas"
 	@echo "    make platform    All of the above, in order"
-	@echo ""
-	@echo "  Not built yet: kubeconfig, verify, reset"
+	@echo "    make kubeconfig  Merge admin.conf in as context 'rack'"
+	@echo "    make verify      Cluster smoke test"
+	@echo "    make reset       DESTRUCTIVE: tears down the cluster (CONFIRM=yes)"
 	@echo ""
 
 # Override with: make iso KEY=~/.ssh/other.pub
@@ -126,3 +130,27 @@ gateway:
 # and Longhorn wants the cluster already settled.
 .PHONY: platform
 platform: cilium metallb ingress gateway longhorn
+
+# Fetches admin.conf and merges it in as a context named "rack", rather than
+# overwriting whatever kubeconfig you already have.
+.PHONY: kubeconfig
+kubeconfig:
+	@mkdir -p $(HOME)/.kube
+	ansible -i $(INVENTORY) -m fetch -a "src=/etc/kubernetes/admin.conf dest=/tmp/rack-admin.conf flat=yes" \
+		$$(yq -r '.all.children.control_plane.hosts | keys | .[0]' $(HOSTS))
+	KUBECONFIG=/tmp/rack-admin.conf kubectl config rename-context kubernetes-admin@kubernetes rack
+	KUBECONFIG=/tmp/rack-admin.conf:$(HOME)/.kube/config kubectl config view --flatten > /tmp/rack-merged.conf
+	mv /tmp/rack-merged.conf $(HOME)/.kube/config
+	rm -f /tmp/rack-admin.conf
+	@chmod 600 $(HOME)/.kube/config
+	@echo "context 'rack' merged into ~/.kube/config — kubectl config use-context rack"
+
+.PHONY: verify
+verify:
+	scripts/verify.sh
+
+# DESTROYS the cluster. Requires CONFIRM=yes so a mistyped target cannot do it.
+# The Longhorn volume is left alone; that is where the data lives.
+.PHONY: reset
+reset:
+	$(ANSIBLE) playbooks/reset.yml -e confirm_reset=$(CONFIRM)
