@@ -1,6 +1,9 @@
 .DEFAULT_GOAL := help
 ANSIBLE := ansible-playbook
 VARS := inventory/group_vars/all.yml
+HOSTS := inventory/hosts.yml
+INVENTORY := inventory/hosts.yml
+CONFIRM ?= no
 
 # Single source of truth: every version is read from group_vars, never duplicated here.
 CILIUM_VERSION        := $(shell yq '.cilium_version' $(VARS))
@@ -27,8 +30,9 @@ help:
 	@echo "    make gateway     Envoy Gateway (Gateway API) + GatewayClass envoy"
 	@echo "    make longhorn    Default StorageClass, 3 replicas"
 	@echo "    make platform    All of the above, in order"
-	@echo ""
-	@echo "  Not built yet: kubeconfig, verify, reset"
+	@echo "    make kubeconfig  Merge admin.conf in as context 'rack'"
+	@echo "    make verify      Cluster smoke test"
+	@echo "    make reset       DESTRUCTIVE: tears down the cluster (CONFIRM=yes)"
 	@echo ""
 
 # Override with: make iso KEY=~/.ssh/other.pub
@@ -126,3 +130,39 @@ gateway:
 # and Longhorn wants the cluster already settled.
 .PHONY: platform
 platform: cilium metallb ingress gateway longhorn
+
+# Fetches admin.conf and merges it in as a context named "rack" — cluster, user
+# and context all renamed, because every kubeadm cluster calls its cluster
+# "kubernetes" and its user "kubernetes-admin", and a second one merged under
+# those names silently overwrites the first. The operator's current context is
+# put back afterwards; adding a cluster should not switch you onto it.
+.PHONY: kubeconfig
+kubeconfig:
+	@set -eu; \
+	umask 077; \
+	mkdir -p $(HOME)/.kube; \
+	work=$$(mktemp -d); \
+	trap 'rm -rf "$$work"' EXIT INT TERM; \
+	cp=$$(yq -r '.all.children.control_plane.hosts | keys | .[0]' $(HOSTS)); \
+	ansible -i $(INVENTORY) -m fetch \
+		-a "src=/etc/kubernetes/admin.conf dest=$$work/admin.conf flat=yes" "$$cp"; \
+	yq -i '.clusters[0].name = "rack" | .users[0].name = "rack" | .contexts[0].name = "rack" \
+		| .contexts[0].context.cluster = "rack" | .contexts[0].context.user = "rack" \
+		| .["current-context"] = "rack"' "$$work/admin.conf"; \
+	prev=$$(kubectl config current-context 2>/dev/null || true); \
+	KUBECONFIG="$$work/admin.conf:$(HOME)/.kube/config" kubectl config view --flatten \
+		> "$$work/merged"; \
+	cat "$$work/merged" > $(HOME)/.kube/config; \
+	chmod 600 $(HOME)/.kube/config; \
+	if [ -n "$$prev" ] && [ "$$prev" != rack ]; then kubectl config use-context "$$prev" >/dev/null; fi; \
+	echo "context 'rack' merged into ~/.kube/config — kubectl config use-context rack"
+
+.PHONY: verify
+verify:
+	scripts/verify.sh
+
+# DESTROYS the cluster. Requires CONFIRM=yes so a mistyped target cannot do it.
+# The Longhorn volume is left alone; that is where the data lives.
+.PHONY: reset
+reset:
+	$(ANSIBLE) playbooks/reset.yml -e confirm_reset=$(CONFIRM)
