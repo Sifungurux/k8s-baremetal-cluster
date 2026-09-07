@@ -4,14 +4,21 @@
 # removed on exit however the script ends.
 #
 # Check 4 is the one that matters. Everything else proves a thing exists; check
-# 4 proves Longhorn replication actually works, by moving a pod to a different
-# node and reading back what the first one wrote. A volume that merely exists
-# tells you nothing about whether the data would survive losing a node.
+# 4 proves Longhorn replication actually works — the volume is Healthy with its
+# replicas on distinct nodes, and a pod on a different node reads back what the
+# first one wrote. The read-back alone is not enough: a volume attaches over
+# iSCSI from anywhere, so a Degraded 2-of-3 volume passes that identically.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 VARS=${VARS:-inventory/group_vars/all.yml}
 HOSTS=${HOSTS:-inventory/hosts.yml}
+
+# Everything runs against one named context, never whatever happens to be
+# current: this script creates a LoadBalancer and a PVC, and doing that in the
+# wrong cluster is not a harmless mistake. make kubeconfig names it "rack".
+CONTEXT=${CONTEXT:-rack}
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 
 pass() { printf '  \033[32mok\033[0m   %s\n' "$*"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$*" >&2; failed=$((failed + 1)); }
@@ -32,15 +39,22 @@ echo
 
 # Without this the first kubectl failure kills the script under `set -e` and the
 # operator gets an exit code and nothing else.
-if ! kubectl version -o json >/dev/null 2>&1; then
-    fail "cannot reach the cluster — check KUBECONFIG, or run make kubeconfig"
+if ! server=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null) \
+   || ! kubectl version -o json >/dev/null 2>&1; then
+    fail "cannot reach context '$CONTEXT' — run make kubeconfig, or set CONTEXT="
     echo
     echo "1 check failed."
     exit 1
 fi
+echo "  context $CONTEXT — $server"
+echo
 
 ### 1. every node registered and Ready
-ready=$(kubectl get nodes --no-headers 2>/dev/null | awk '$2=="Ready"' | wc -l | tr -d ' ')
+# By condition, not by the STATUS column: a cordoned node prints
+# "Ready,SchedulingDisabled" and is still Ready.
+nodes_json=$(kubectl get nodes -o json)
+ready=$(echo "$nodes_json" | jq '[.items[] | select(.status.conditions[]
+    | select(.type=="Ready" and .status=="True"))] | length')
 if [ "$ready" -eq "$expected" ]; then
     pass "$ready/$expected nodes Ready"
 else
@@ -52,7 +66,6 @@ fi
 # the control-plane taint is a deliberate config choice, while memory-pressure,
 # unreachable and not-ready are transient health. Blaming the untaint for a
 # starved node sends you to the wrong file.
-nodes_json=$(kubectl get nodes -o json 2>/dev/null)
 cp_tainted=$(echo "$nodes_json" | jq '[.items[] | select((.spec.taints // [])
     | map(select(.key=="node-role.kubernetes.io/control-plane")) | length > 0)] | length')
 unhealthy=$(echo "$nodes_json" | jq -r '[.items[] | select((.spec.taints // [])
@@ -72,9 +85,11 @@ else
 fi
 
 ### 2. the platform is installed
-kubectl get storageclass 2>/dev/null | grep -q '(default)' \
-    && pass "a default StorageClass exists" \
-    || fail "no default StorageClass — Longhorn did not install, or is not marked default"
+# Specifically Longhorn as the default — another class marked default would
+# pass a looser check and quietly retarget the replication test below.
+kubectl get storageclass 2>/dev/null | grep -qE '^longhorn .*\(default\)' \
+    && pass "longhorn is the default StorageClass" \
+    || fail "longhorn is not the default StorageClass — run make longhorn, or unset the other default"
 
 if kubectl get gatewayclass envoy >/dev/null 2>&1; then
     acc=$(kubectl get gatewayclass envoy -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null)
@@ -118,6 +133,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: data
 spec:
+  storageClassName: longhorn
   accessModes: [ReadWriteOnce]
   resources:
     requests:
@@ -147,6 +163,30 @@ if ! kubectl -n "$ns" wait --for=condition=Ready pod/writer --timeout=300s >/dev
 fi
 node1=$(kubectl -n "$ns" get pod writer -o jsonpath='{.spec.nodeName}')
 pass "PVC bound and mounted on $node1"
+
+# A volume attaches to any node over iSCSI no matter where — or how many —
+# replicas exist, so reading the file back from another node proves attach and
+# detach, not replication. This is the check that proves replication: the
+# volume is Healthy (every replica present, not Degraded) and its replicas sit
+# on distinct nodes. Longhorn creates Degraded volumes by default when it cannot
+# place all replicas, and those pass the read-back test identically.
+pv=$(kubectl -n "$ns" get pvc data -o jsonpath='{.spec.volumeName}')
+want=$(kubectl -n longhorn-system get volumes.longhorn.io "$pv" -o jsonpath='{.spec.numberOfReplicas}' 2>/dev/null || echo "?")
+robust=""
+for _ in $(seq 1 60); do
+    robust=$(kubectl -n longhorn-system get volumes.longhorn.io "$pv" -o jsonpath='{.status.robustness}' 2>/dev/null || true)
+    [ "$robust" = healthy ] && break
+    sleep 2
+done
+nodes_with_replica=$(kubectl -n longhorn-system get replicas.longhorn.io -l "longhornvolume=$pv" \
+    -o jsonpath='{range .items[*]}{.spec.nodeID}{"\n"}{end}' 2>/dev/null | sort -u | grep -c . || echo 0)
+if [ "$robust" = healthy ] && [ "$nodes_with_replica" -ge "${want:-3}" ]; then
+    pass "volume is healthy with $nodes_with_replica replicas on $nodes_with_replica distinct nodes"
+elif [ "$robust" = healthy ]; then
+    fail "volume is healthy but only $nodes_with_replica of $want replicas are on distinct nodes — a node loss takes more than one copy"
+else
+    fail "volume robustness is '${robust:-unknown}', not healthy — replicas could not all be placed; data would NOT survive losing the wrong node"
+fi
 
 kubectl -n "$ns" delete pod writer --wait=true >/dev/null
 other=$(kubectl get nodes -o json \
@@ -182,7 +222,7 @@ YAML
         sleep 2
     done
     if [ "$(kubectl -n "$ns" logs reader 2>/dev/null | tr -d '\r\n')" = "persisted-by-writer" ]; then
-        pass "the same data read back on $other — replication works"
+        pass "the same data read back on $other"
     else
         fail "could not read the data from $other; the volume did not follow the pod"
     fi

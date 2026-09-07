@@ -4,13 +4,14 @@ Ansible-driven [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubead
 
 The bare-metal counterpart to [`k8s-colima-cluster`](../k8s-colima-cluster) (local dev cluster). Hands off a cluster that behaves like the k3d ones — CNI, LoadBalancer, ingress, default StorageClass — so [`k8s-infra`](../k8s-infra) and everything downstream run against it unchanged.
 
-**Status: in progress.** The whole path is built — `make iso` produces a
+**Status: feature-complete, partially verified.** `make iso` produces a
 bootable USB image that installs Debian stable and prepares a node for
 `kubeadm`; `make bootstrap` brings up three control planes behind a kube-vip
 VIP and joins the workers; `make platform` adds Cilium, MetalLB, ingress-nginx,
-Envoy Gateway and Longhorn. Both `Ingress` and Gateway API are served, so
-applications use whichever they already speak. Still missing: the cluster smoke
-test, `make kubeconfig`, and `make reset`.
+Envoy Gateway and Longhorn; `make verify` proves it. Both `Ingress` and Gateway
+API are served, so applications use whichever they already speak. The install
+path is proven on real hardware, bootstrap on a VM rig; the platform layer and
+`make reset` have not yet run against a cluster.
 
 Before any of this can run, fill in the operator-supplied values (currently
 `CHANGEME`) in [`inventory/group_vars/all.yml`](inventory/group_vars/all.yml)

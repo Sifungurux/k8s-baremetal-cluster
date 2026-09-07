@@ -3,16 +3,17 @@
 How to install the tooling, fill in the inventory, and run this repo against the
 five-node rack.
 
-> **Read this first — the repo is partially built.**
+> **Read this first — what is proven and what is not.**
 >
-> `make deps`, `make preflight`, and `make prep` work end to end. Everything
-> after that (`bootstrap`, `platform`, `kubeconfig`, `verify`, `reset`) is
-> **not implemented yet** — the playbooks and Makefile targets do not exist.
-> `make help` advertises them anyway. See [Part 6](#part-6--stop-here) for what
-> happens if you run them.
+> The whole path exists: `make preflight`, `prep`, `bootstrap`, `platform`,
+> `kubeconfig`, `verify` and `reset`. What is verified differs by stage. The
+> USB install and node prep have run on real hardware. Bootstrap, the joins and
+> Cilium have run on a four-node VM rig. MetalLB, ingress-nginx, Envoy Gateway,
+> Longhorn, the smoke test's passing path and `reset` have **not** run against
+> a cluster yet — treat them accordingly on first use.
 >
-> Concretely: this guide takes you from bare Debian nodes to *nodes prepared for
-> `kubeadm init`*. It does not yet take you to a cluster.
+> Concretely: this guide takes you from bare metal to a cluster with
+> networking, load balancing, ingress and storage, and a test that says so.
 
 ---
 
@@ -355,7 +356,7 @@ to match.
 
 ### Verify on metal
 
-Molecule cannot prove any of this (see [Part 7](#part-7--running-the-tests)), so
+Molecule cannot prove any of this (see [Part 8](#part-8--running-the-tests)), so
 check the real hosts:
 
 ```bash
@@ -427,16 +428,20 @@ make verify       # the smoke test
 `make kubeconfig` *merges* — it does not overwrite whatever kubeconfig you
 already have, and the new context is named `rack`.
 
-`make verify` runs seven checks and names what to fix for each failure. The node
+`make verify` runs a series of checks and names what to fix for each failure. The node
 count comes from the inventory, not a constant, so adding a node needs no edit
 here. The last check is the one worth understanding:
 
-> A pod writes to a Longhorn volume on one node. The pod is deleted, and a
-> second pod is scheduled onto a **different** node and reads the file back.
+> A pod writes to a Longhorn volume on one node. The volume is checked to be
+> **Healthy** with its replicas on distinct nodes. Then the pod is deleted and a
+> second pod on a **different** node reads the file back.
 
 Everything else proves a component exists. That check proves replication
-actually works — a volume that merely exists tells you nothing about whether the
-data survives losing a node, which is the entire reason Longhorn is here.
+actually works. The read-back alone would not: a volume attaches over iSCSI
+from any node regardless of where its replicas are, so a Degraded 2-of-3 volume
+passes it identically — and Longhorn creates Degraded volumes by default when
+it cannot place every replica. The robustness check is what turns "the data
+came back" into "the data would survive losing a node".
 
 It also separates two very different causes of an unschedulable node: the
 control-plane taint is a config choice, while `memory-pressure`, `unreachable`

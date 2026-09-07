@@ -19,19 +19,64 @@
 
 - name: Reset every node
   hosts: all
-  gather_facts: false
+  gather_facts: true
   tasks:
+    # kube-vip goes first, and gets a chance to exit. kubeadm reset empties the
+    # manifests directory and kills the pod via the CRI, which never lets
+    # kube-vip release the VIP — the address then survives on this node's
+    # interface, and the next bootstrap's joins dial it and reach a node with
+    # no API server. The explicit delete below covers the case where it still
+    # did not let go.
+    - name: Remove the kube-vip static pod manifest
+      ansible.builtin.file:
+        path: /etc/kubernetes/manifests/kube-vip.yaml
+        state: absent
+      register: kube_vip_manifest
+
+    - name: Give the kubelet time to stop kube-vip  # noqa: no-handler — must run here, before reset, not at play end
+      ansible.builtin.pause:
+        seconds: 15
+      when: kube_vip_manifest is changed
+
+    - name: Make sure the VIP is gone from this node
+      ansible.builtin.command:
+        cmd: "ip addr del {{ control_plane_vip }}/32 dev {{ item }}"
+      loop: "{{ ansible_interfaces | difference(['lo']) }}"
+      register: vip_del
+      changed_when: vip_del.rc == 0
+      failed_when: false
+      when: inventory_hostname in groups['control_plane']
+
+    # Cilium mounts cgroup2 under /run/cilium and kubeadm reset does not unmount
+    # it; removing the directory with the mount still there fails EBUSY.
+    - name: Unmount Cilium's cgroup2 mount if present
+      ansible.posix.mount:
+        path: /run/cilium/cgroupv2
+        state: unmounted
+
+    # A silent failure here is the worst outcome: the survey play on the next
+    # bootstrap sees kubelet.conf, marks the node as already joined, and never
+    # joins it. So this is allowed to fail, and the result is checked below.
     - name: Run kubeadm reset
       ansible.builtin.command:
         cmd: kubeadm reset --force
       register: kubeadm_reset
       changed_when: kubeadm_reset.rc == 0
-      failed_when: false
 
-    - name: Remove the kube-vip static pod manifest
-      ansible.builtin.file:
-        path: /etc/kubernetes/manifests/kube-vip.yaml
-        state: absent
+    - name: Confirm the node's cluster identity is gone
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf_after
+
+    - name: Fail if kubeadm reset left the node joined
+      ansible.builtin.assert:
+        that:
+          - not kubelet_conf_after.stat.exists
+        fail_msg: >-
+          /etc/kubernetes/kubelet.conf still exists on {{ inventory_hostname }}
+          after kubeadm reset. The next bootstrap would treat this node as
+          already joined and skip it. Check for busy mounts under
+          /var/lib/kubelet.
 
     # kubeadm reset leaves CNI state behind, and a stale one breaks the next
     # bootstrap in ways that look like a CNI bug rather than leftovers.
@@ -42,7 +87,7 @@
       loop:
         - /etc/cni/net.d
         - /var/lib/cni
-        - /var/run/cilium
+        - /run/cilium
 
     - name: Drop the operator's kubeconfig
       ansible.builtin.file:

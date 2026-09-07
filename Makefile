@@ -131,8 +131,11 @@ gateway:
 .PHONY: platform
 platform: cilium metallb ingress gateway longhorn
 
-# Fetches admin.conf and merges it in as a context named "rack", rather than
-# overwriting whatever kubeconfig you already have.
+# Fetches admin.conf and merges it in as a context named "rack" — cluster, user
+# and context all renamed, because every kubeadm cluster calls its cluster
+# "kubernetes" and its user "kubernetes-admin", and a second one merged under
+# those names silently overwrites the first. The operator's current context is
+# put back afterwards; adding a cluster should not switch you onto it.
 .PHONY: kubeconfig
 kubeconfig:
 	@set -eu; \
@@ -142,13 +145,16 @@ kubeconfig:
 	trap 'rm -rf "$$work"' EXIT INT TERM; \
 	cp=$$(yq -r '.all.children.control_plane.hosts | keys | .[0]' $(HOSTS)); \
 	ansible -i $(INVENTORY) -m fetch \
-		-a "src=/etc/kubernetes/admin.conf dest=$$work/admin.conf flat=yes" "$$cp" >/dev/null; \
-	KUBECONFIG="$$work/admin.conf" kubectl config rename-context \
-		kubernetes-admin@kubernetes rack >/dev/null; \
+		-a "src=/etc/kubernetes/admin.conf dest=$$work/admin.conf flat=yes" "$$cp"; \
+	yq -i '.clusters[0].name = "rack" | .users[0].name = "rack" | .contexts[0].name = "rack" \
+		| .contexts[0].context.cluster = "rack" | .contexts[0].context.user = "rack" \
+		| .["current-context"] = "rack"' "$$work/admin.conf"; \
+	prev=$$(kubectl config current-context 2>/dev/null || true); \
 	KUBECONFIG="$$work/admin.conf:$(HOME)/.kube/config" kubectl config view --flatten \
 		> "$$work/merged"; \
 	cat "$$work/merged" > $(HOME)/.kube/config; \
 	chmod 600 $(HOME)/.kube/config; \
+	if [ -n "$$prev" ] && [ "$$prev" != rack ]; then kubectl config use-context "$$prev" >/dev/null; fi; \
 	echo "context 'rack' merged into ~/.kube/config — kubectl config use-context rack"
 
 .PHONY: verify
