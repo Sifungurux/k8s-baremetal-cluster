@@ -1,4 +1,14 @@
 ---
-# The chart's defaults are right for a rack: a speaker DaemonSet on every node
-# and a single controller. Nothing to override — the file exists so the pool
-# and the release stay described in the same place.
+# A speaker DaemonSet on every node and a single controller is what this rack
+# wants. One default is wrong for it, though: the chart also installs frr-k8s.
+#
+# frr-k8s exists to speak BGP. This rack peers with nothing — pool.yaml.tpl
+# declares an L2Advertisement and no BGPPeer, deliberately, because the rack is
+# a single VLAN with no router peering. Left enabled it ran a 5-container pod
+# on all six nodes doing nothing, which is 30 containers of FRR to maintain,
+# patch and debug for a feature this cluster does not use.
+#
+# Turning it back on is one line, and BGP would need BGPPeer resources anyway,
+# so nothing is lost by having it off until that day.
+frrk8s:
+  enabled: false
