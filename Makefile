@@ -102,6 +102,12 @@ longhorn:
 		--namespace longhorn-system --create-namespace \
 		-f platform/longhorn/values.yaml \
 		--wait --timeout 15m
+# helm --wait returns before storage works. Longhorn's CSI components are
+# created by longhorn-driver-deployer AFTER the release reports deployed, so
+# they are not in anything helm waits on. Observed on the rack: the chart said
+# STATUS: deployed with longhorn-csi-plugin at 0/6, which is a cluster that
+# cannot bind a PVC yet reports success. Wait for the plugin itself.
+	kubectl rollout status ds/longhorn-csi-plugin -n longhorn-system --timeout=5m
 
 # Ingress resources only. ingress-nginx dropped its Gateway API support, so
 # Gateway API is Envoy Gateway's job below.
