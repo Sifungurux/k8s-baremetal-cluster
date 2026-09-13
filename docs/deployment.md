@@ -290,9 +290,30 @@ safe as long as your rack VLAN is not inside them.
 failure, not a prompt. Accept them first:
 
 ```bash
-ssh-keyscan -H 10.20.0.11 10.20.0.12 10.20.0.13 10.20.0.21 10.20.0.22 \
-  >> ~/.ssh/known_hosts
+for ip in $(ansible-inventory --list --yaml | awk '/ansible_host:/ {print $2}'); do
+  ssh-keyscan -H -t ed25519 "$ip" >> ~/.ssh/known_hosts
+  sleep 2
+done
 ```
+
+The addresses come from `inventory/hosts.yml` rather than a list typed here, so
+this stays correct when the rack changes. Two details are deliberate:
+
+**One host per invocation, with a pause.** `ssh-keyscan host1 host2 host3 ...`
+opens several connections per host in under a second, and a gateway with
+SSH-scan or brute-force protection reads that as an attack. Verified on this
+rack: the burst form got the controller's source IP dropped at the gateway
+per node — ICMP kept working while *every* TCP port to that node (22, 6443,
+10250) timed out for about ten minutes. The symptom looks exactly like dead
+nodes. The same trap catches `ansible all` later on, which fans out to
+`forks=5` by default; if Part 3's ping returns SUCCESS for some hosts and
+`UNREACHABLE ... Operation timed out` for the rest, that is the block, not the
+nodes. Re-run with `-f 1` once the drop window has passed.
+
+**`-t ed25519` only.** One connection per host instead of three, and it is the
+key type OpenSSH prefers anyway, so `host_key_checking` is satisfied with just
+this entry. Verified: a node whose `known_hosts` line is ed25519-only logs in
+without a prompt.
 
 Then check inventory parsing and connectivity:
 
@@ -507,6 +528,7 @@ restarts are plain `hostonly` tasks rather than handlers, because
 | `Collection community.general does not support Ansible version 2.15.13` | ansible-core too old. Needs ≥ 2.18, which needs Python ≥ 3.11. See Part 1.1. |
 | Makefile version variables come out empty or quoted | Wrong `yq`. Needs mikefarah v4, not the Python jq wrapper. |
 | `Host key verification failed` | `host_key_checking = True` in `ansible.cfg`. Run the `ssh-keyscan` in Part 3. |
+| `ansible all -m ping` returns SUCCESS for some hosts, `UNREACHABLE ... Operation timed out` for the rest | Not the nodes. A gateway with SSH-scan protection dropped the controller's IP for the hosts it fanned out to. Wait ~10 minutes, re-run with `-f 1`. Part 3. |
 | `Fill in inventory/group_vars/all.yml before running anything` | One of the nine required values is still `CHANGEME`. Part 2.2. |
 | `pod_cidr/service_cidr overlap rack_subnet` | Your VLAN sits inside the kubeadm defaults. Move the VLAN or change the CIDRs. |
 | `control_plane_vip and metallb_pool collide` | The VIP falls inside the pool range. Move one. |
