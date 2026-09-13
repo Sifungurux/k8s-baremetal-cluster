@@ -12,6 +12,8 @@ INGRESS_NGINX_VERSION := $(shell yq '.ingress_nginx_version' $(VARS))
 ENVOY_GATEWAY_VERSION := $(shell yq '.envoy_gateway_version' $(VARS))
 LONGHORN_VERSION      := $(shell yq '.longhorn_version' $(VARS))
 METALLB_POOL          := $(shell yq '.metallb_pool' $(VARS))
+METALLB_NAMED_POOL    := $(shell yq '.metallb_named_pool' $(VARS))
+INGRESS_NGINX_LB_IP   := $(shell yq '.ingress_nginx_lb_ip' $(VARS))
 
 .PHONY: help
 help:
@@ -89,7 +91,9 @@ metallb:
 		--namespace metallb-system --create-namespace \
 		-f platform/metallb/values.yaml \
 		--wait --timeout 5m
-	sed 's|__METALLB_POOL__|$(METALLB_POOL)|' platform/metallb/pool.yaml.tpl | kubectl apply -f -
+	sed -e 's|__METALLB_POOL__|$(METALLB_POOL)|' \
+	    -e 's|__METALLB_NAMED_POOL__|$(METALLB_NAMED_POOL)|' \
+	    platform/metallb/pool.yaml.tpl | kubectl apply -f -
 
 # Needs three schedulable nodes for its three-replica default, and the
 # /var/lib/longhorn mount that storage_prep created on each of them.
@@ -119,6 +123,7 @@ ingress:
 		--version $(INGRESS_NGINX_VERSION) \
 		--namespace ingress-nginx --create-namespace \
 		-f platform/ingress-nginx/values.yaml \
+		--set controller.service.annotations."metallb\.io/loadBalancerIPs"=$(INGRESS_NGINX_LB_IP) \
 		--wait --timeout 5m
 
 # Gateway API. The chart ships the gateway.networking.k8s.io CRDs as well as

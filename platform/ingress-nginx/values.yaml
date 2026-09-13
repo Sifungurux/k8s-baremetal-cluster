@@ -5,8 +5,15 @@
 controller:
   replicaCount: 2
   service:
-    # MetalLB hands this an address out of metallb_pool. Without MetalLB it
-    # would sit Pending forever.
+    # MetalLB hands this an address. Without MetalLB it would sit Pending
+    # forever.
+    #
+    # WHICH address is not set here: the Makefile passes
+    # controller.service.annotations."metallb.io/loadBalancerIPs" from
+    # ingress_nginx_lb_ip in group_vars, so every address this rack uses stays
+    # described in one file. The address must sit inside metallb_named_pool,
+    # whose autoAssign is off — that is what keeps MetalLB from handing it to
+    # something else while this Service is absent.
     type: LoadBalancer
   ingressClassResource:
     # The default only applies to Ingress resources; it says nothing about
