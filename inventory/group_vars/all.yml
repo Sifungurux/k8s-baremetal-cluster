@@ -42,7 +42,23 @@ control_plane_endpoint: "{{ control_plane_vip }}:6443"
 rack_subnet: "192.168.150.0/26"        # usable .1-.62; .1 left for the gateway
 pod_cidr: "10.244.0.0/16"
 service_cidr: "10.96.0.0/12"
-metallb_pool: "192.168.150.32-192.168.150.62"  # 31 LoadBalancer IPs; .22-.31 spare
+# Two pools, because an address a DNS record points at must not be handed to
+# something else. metallb_named_pool has autoAssign off: MetalLB never picks
+# from it on its own, so an address there is only ever used by a Service that
+# asks for it by name (metallb.io/loadBalancerIPs). metallb_pool stays the
+# automatic range for everything ephemeral — a smoke test's LoadBalancer, a
+# throwaway Service. Both must sit inside rack_subnet and must not overlap each
+# other, the VIP, pod_cidr or service_cidr.
+#
+# Currently spoken for in the named pool: .32 ingress-nginx, .33 the
+# supply-chain-monitor Gateway (scm.rack.local). .34-.35 are the next two.
+metallb_named_pool: "192.168.150.32-192.168.150.35"  # 4 reserved, DNS-worthy
+metallb_pool: "192.168.150.36-192.168.150.62"        # 27 auto-assigned; .22-.31 spare
+
+# The address ingress-nginx asks for out of metallb_named_pool. It had .32 by
+# luck before this existed — the lowest free address at install time — and
+# nothing held it.
+ingress_nginx_lb_ip: "192.168.150.32"
 
 # Storage
 longhorn_vg: "rackvg"                  # the installer creates this VG; storage_prep carves
