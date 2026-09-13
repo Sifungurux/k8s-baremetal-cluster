@@ -41,7 +41,7 @@
   roles:
     - worker
 
-# Longhorn wants three schedulable nodes and this rack has five, so the control
+# Longhorn wants three schedulable nodes and this rack has six, so the control
 # planes carry workloads. This must happen before Longhorn, or replica
 # placement has too few candidates.
 - name: Untaint the control planes so they can carry workloads

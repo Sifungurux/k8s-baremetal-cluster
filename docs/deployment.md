@@ -1,7 +1,7 @@
 # Deployment guide
 
 How to install the tooling, fill in the inventory, and run this repo against the
-five-node rack.
+six-node rack.
 
 > **Read this first — what is proven and what is not.**
 >
@@ -21,7 +21,7 @@ five-node rack.
 
 ### 0.1 The operating system
 
-**A full OS must be installed and running on all five servers before the
+**A full OS must be installed and running on all six servers before the
 controller can do anything.** Ansible connects over SSH to machines that
 already boot.
 
@@ -75,7 +75,7 @@ ssh youruser@10.20.0.11 \
 There is no special-purpose account to create. Any regular user works, subject
 to four constraints the repo imposes:
 
-**One user for all five nodes.** `ansible_user` sits under `all: vars:` in
+**One user for all six nodes.** `ansible_user` sits under `all: vars:` in
 `inventory/hosts.yml`, so it applies to every host. If your nodes have different
 usernames, move `ansible_user` down to the individual host entries.
 
@@ -197,6 +197,7 @@ all:
       hosts:
         w1: { ansible_host: 10.20.0.21 }
         w2: { ansible_host: 10.20.0.22 }
+        w3: { ansible_host: 10.20.0.23 }
   vars:
     ansible_user: youruser
     ansible_python_interpreter: /usr/bin/python3
@@ -318,8 +319,8 @@ without a prompt.
 Then check inventory parsing and connectivity:
 
 ```bash
-ansible-inventory --list --yaml | head -30   # expect 5 hosts in 2 groups
-ansible all -m ping                          # expect 5 x SUCCESS
+ansible-inventory --list --yaml | head -30   # expect 6 hosts in 2 groups
+ansible all -m ping                          # expect 6 x SUCCESS
 ansible all -m command -a "sudo -n true"     # expect no password prompt
 ```
 
