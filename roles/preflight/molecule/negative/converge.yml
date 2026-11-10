@@ -44,3 +44,28 @@
             fail_msg: >-
               preflight failed, but not for the VIP/metallb-collision reason:
               {{ ansible_failed_result.msg | default('no failure message captured') }}
+
+    - name: "Negative case 3: overlapping MetalLB pools must fail preflight"
+      block:
+        - name: Run preflight with a reserved pool that overlaps the automatic one
+          ansible.builtin.include_role:
+            name: preflight
+          vars:
+            pod_cidr: "10.244.0.0/16"
+            metallb_pool: "10.20.0.200-10.20.0.250"
+            # Overlaps metallb_pool at .200-.210. MetalLB's admission webhook
+            # would reject this, but only once make metallb applies it — after
+            # the chart upgrade has already run.
+            metallb_named_pool: "10.20.0.190-10.20.0.210"
+
+        - name: Fail the test — preflight should have rejected this
+          ansible.builtin.fail:
+            msg: "preflight accepted overlapping MetalLB pools — the pool-overlap assertion is not being exercised"
+      rescue:
+        - name: Confirm preflight failed for the expected reason
+          ansible.builtin.assert:
+            that:
+              - "'overlap' in (ansible_failed_result.msg | default(''))"
+            fail_msg: >-
+              preflight failed, but not for the pool-overlap reason:
+              {{ ansible_failed_result.msg | default('no failure message captured') }}

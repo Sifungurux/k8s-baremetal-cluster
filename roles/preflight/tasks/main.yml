@@ -5,6 +5,7 @@
       - kubernetes_version is defined and kubernetes_version != "CHANGEME"
       - control_plane_vip is defined and control_plane_vip != "CHANGEME"
       - metallb_pool is defined and metallb_pool != "CHANGEME"
+      - metallb_named_pool is defined and metallb_named_pool != "CHANGEME"
       - rack_subnet is defined and rack_subnet != "CHANGEME"
       - longhorn_vg is defined and longhorn_vg != "CHANGEME"
       - longhorn_lv_size is defined and longhorn_lv_size != "CHANGEME"
@@ -32,6 +33,8 @@
   ansible.builtin.set_fact:
     metallb_pool_start: "{{ metallb_pool.split('-')[0] }}"
     metallb_pool_end: "{{ metallb_pool.split('-')[1] }}"
+    metallb_named_start: "{{ metallb_named_pool.split('-')[0] }}"
+    metallb_named_end: "{{ metallb_named_pool.split('-')[1] }}"
   run_once: true
   delegate_to: localhost
   become: false
@@ -85,6 +88,54 @@
       - not (service_cidr | ansible.utils.network_in_network(metallb_pool_start))
       - not (service_cidr | ansible.utils.network_in_network(metallb_pool_end))
     fail_msg: "metallb_pool and service_cidr collide — pick a MetalLB pool outside service_cidr"
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+# The reserved pool gets the same treatment as the automatic one — it is a
+# range of real addresses on the same VLAN, and being reserved protects it from
+# MetalLB, not from a typo.
+- name: Reserved MetalLB pool falls inside the rack subnet
+  ansible.builtin.assert:
+    that:
+      - rack_subnet | ansible.utils.network_in_network(metallb_named_start)
+      - rack_subnet | ansible.utils.network_in_network(metallb_named_end)
+    fail_msg: "metallb_named_pool and rack_subnet collide — metallb_named_pool must sit entirely inside rack_subnet"
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Reserved MetalLB pool does not collide with the pod or service CIDR
+  ansible.builtin.assert:
+    that:
+      - not (pod_cidr | ansible.utils.network_in_network(metallb_named_start))
+      - not (pod_cidr | ansible.utils.network_in_network(metallb_named_end))
+      - not (service_cidr | ansible.utils.network_in_network(metallb_named_start))
+      - not (service_cidr | ansible.utils.network_in_network(metallb_named_end))
+    fail_msg: "metallb_named_pool and pod_cidr/service_cidr collide — pick a reserved pool outside both"
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Control-plane VIP does not collide with the reserved MetalLB pool
+  ansible.builtin.assert:
+    that:
+      - (control_plane_vip | ansible.utils.ipaddr('int')) < (metallb_named_start | ansible.utils.ipaddr('int'))
+        or (control_plane_vip | ansible.utils.ipaddr('int')) > (metallb_named_end | ansible.utils.ipaddr('int'))
+    fail_msg: "control_plane_vip and metallb_named_pool collide — the VIP falls inside the reserved range"
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+# Two pools that overlap are rejected by MetalLB's own admission webhook, but
+# only at apply time — which on this repo's path means halfway through
+# make metallb, after the chart has already upgraded. Catch it here instead.
+- name: The two MetalLB pools do not overlap each other
+  ansible.builtin.assert:
+    that:
+      - (metallb_named_end | ansible.utils.ipaddr('int')) < (metallb_pool_start | ansible.utils.ipaddr('int'))
+        or (metallb_pool_end | ansible.utils.ipaddr('int')) < (metallb_named_start | ansible.utils.ipaddr('int'))
+    fail_msg: "metallb_pool and metallb_named_pool overlap — MetalLB rejects overlapping pools"
   run_once: true
   delegate_to: localhost
   become: false
